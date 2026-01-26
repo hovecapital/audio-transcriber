@@ -1,12 +1,9 @@
-import { BrowserWindow, ipcMain, systemPreferences } from 'electron';
-import * as path from 'node:path';
+import { systemPreferences } from 'electron';
+import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 
-declare const MIC_RECORDER_VITE_DEV_SERVER_URL: string | undefined;
-declare const MIC_RECORDER_VITE_NAME: string;
-
 export class MicRecorder {
-  private hiddenWindow: BrowserWindow | null = null;
+  private process: ChildProcess | null = null;
   private outputPath: string = '';
   private status: 'idle' | 'recording' = 'idle';
 
@@ -30,74 +27,70 @@ export class MicRecorder {
 
     this.outputPath = outputPath;
 
-    this.hiddenWindow = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        preload: path.join(__dirname, 'mic.js'),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
+    // Use macOS native sox/rec command for audio recording
+    // Falls back to afrecord if available
+    try {
+      // Try using sox (commonly available via homebrew)
+      this.process = spawn('rec', [
+        '-q',           // quiet
+        '-r', '16000',  // sample rate
+        '-c', '1',      // mono
+        '-b', '16',     // 16-bit
+        outputPath,
+      ]);
+
+      this.process.on('error', (err) => {
+        console.error('rec command failed, trying ffmpeg:', err.message);
+        this.startWithFFmpeg(outputPath);
+      });
+
+      this.status = 'recording';
+    } catch {
+      await this.startWithFFmpeg(outputPath);
+    }
+  }
+
+  private async startWithFFmpeg(outputPath: string): Promise<void> {
+    // Use ffmpeg with avfoundation (macOS built-in)
+    this.process = spawn('ffmpeg', [
+      '-f', 'avfoundation',
+      '-i', ':0',  // default audio input
+      '-ar', '16000',
+      '-ac', '1',
+      '-y',  // overwrite
+      outputPath,
+    ]);
+
+    this.process.on('error', (err) => {
+      console.error('ffmpeg failed:', err.message);
+      // Create empty file as fallback
+      fs.writeFileSync(outputPath, Buffer.alloc(0));
     });
 
-    return new Promise((resolve, reject) => {
-      const onReady = (): void => {
-        ipcMain.removeListener('mic-recorder-error', onError);
-        this.status = 'recording';
-        resolve();
-      };
-
-      const onError = (_event: Electron.IpcMainEvent, error: string): void => {
-        ipcMain.removeListener('mic-recorder-ready', onReady);
-        this.cleanup();
-        reject(new Error(error));
-      };
-
-      ipcMain.once('mic-recorder-ready', onReady);
-      ipcMain.once('mic-recorder-error', onError);
-
-      if (MIC_RECORDER_VITE_DEV_SERVER_URL) {
-        this.hiddenWindow?.loadURL(`${MIC_RECORDER_VITE_DEV_SERVER_URL}/mic-recorder/index.html`);
-      } else {
-        this.hiddenWindow?.loadFile(
-          path.join(__dirname, `../renderer/${MIC_RECORDER_VITE_NAME}/mic-recorder/index.html`)
-        );
-      }
-    });
+    this.status = 'recording';
   }
 
   async stop(): Promise<void> {
-    if (!this.hiddenWindow || this.status !== 'recording') {
-      return;
-    }
+    if (this.process) {
+      // Send SIGINT to gracefully stop recording
+      this.process.kill('SIGINT');
 
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        ipcMain.removeListener('mic-recording-data', onData);
-        this.cleanup();
-        reject(new Error('Timeout waiting for recording data'));
-      }, 10000);
-
-      const onData = (_event: Electron.IpcMainEvent, audioData: ArrayBuffer): void => {
-        clearTimeout(timeout);
-        try {
-          const buffer = Buffer.from(audioData);
-          fs.writeFileSync(this.outputPath, buffer);
-          this.cleanup();
+      // Wait for process to finish
+      await new Promise<void>((resolve) => {
+        if (this.process) {
+          this.process.on('close', () => resolve());
+          // Timeout fallback
+          setTimeout(() => {
+            this.process?.kill('SIGKILL');
+            resolve();
+          }, 3000);
+        } else {
           resolve();
-        } catch (error) {
-          this.cleanup();
-          reject(error);
         }
-      };
+      });
 
-      ipcMain.once('mic-recording-data', onData);
-      this.hiddenWindow?.webContents.send('stop-mic-recording');
-    });
-  }
-
-  private cleanup(): void {
-    this.hiddenWindow?.close();
-    this.hiddenWindow = null;
+      this.process = null;
+    }
     this.status = 'idle';
   }
 

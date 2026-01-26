@@ -46,8 +46,8 @@ export async function startRecording(): Promise<RecordingSession> {
   const session: RecordingSession = {
     id: sessionId,
     startTime: new Date(),
-    micFilePath: path.join(sessionDir, 'recording-mic.webm'),
-    systemFilePath: path.join(sessionDir, 'recording-system.webm'),
+    micFilePath: path.join(sessionDir, 'recording-mic.wav'),
+    systemFilePath: path.join(sessionDir, 'recording-system.wav'),
     status: 'recording',
   };
 

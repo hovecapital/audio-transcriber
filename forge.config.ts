@@ -32,11 +32,6 @@ const config: ForgeConfig = {
           config: 'vite.preload.config.ts',
           target: 'preload',
         },
-        {
-          entry: 'src/preload/mic.ts',
-          config: 'vite.preload.config.ts',
-          target: 'preload',
-        },
       ],
       renderer: [
         {

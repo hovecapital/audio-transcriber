@@ -7,7 +7,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         progress: resolve(__dirname, 'src/renderer/progress/index.html'),
-        'mic-recorder': resolve(__dirname, 'src/renderer/mic-recorder/index.html'),
       },
     },
   },
