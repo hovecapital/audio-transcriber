@@ -43,7 +43,7 @@ open MeetingRecorder.xcodeproj
 
 After building, the app bundle is at:
 
-```
+```bash
 build/Meeting Recorder.app
 ```
 
@@ -56,6 +56,7 @@ cp -r "build/Meeting Recorder.app" /Applications/
 Or drag it to Applications in Finder.
 
 The app is a proper macOS menubar app that:
+
 - Shows in the menubar (not the dock)
 - Has "Launch at Login" option in Settings
 - Can be installed in /Applications
