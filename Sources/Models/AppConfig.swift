@@ -49,6 +49,8 @@ final class ConfigManager {
 
     private init() {
         ensureAppSupportDirectoryExists()
+        Log.config.debug("ConfigManager initialized")
+        Log.config.debug("Config path: \(self.configURL.path)")
     }
 
     private func ensureAppSupportDirectoryExists() {
@@ -59,15 +61,17 @@ final class ConfigManager {
 
     func load() -> AppConfig {
         guard FileManager.default.fileExists(atPath: configURL.path) else {
+            Log.config.info("No config file found, using defaults")
             return .default
         }
 
         do {
             let data = try Data(contentsOf: configURL)
             let config = try JSONDecoder().decode(AppConfig.self, from: data)
+            Log.config.info("Config loaded: model=\(config.whisperModelSize.rawValue), output=\(config.outputDirectory)")
             return config
         } catch {
-            print("Failed to load config: \(error)")
+            Log.config.error("Failed to load config: \(error.localizedDescription)")
             return .default
         }
     }
@@ -76,8 +80,9 @@ final class ConfigManager {
         do {
             let data = try JSONEncoder().encode(config)
             try data.write(to: configURL)
+            Log.config.info("Config saved: model=\(config.whisperModelSize.rawValue), output=\(config.outputDirectory)")
         } catch {
-            print("Failed to save config: \(error)")
+            Log.config.error("Failed to save config: \(error.localizedDescription)")
         }
     }
 }

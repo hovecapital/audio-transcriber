@@ -16,13 +16,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Log.general.info("MeetingRecorder app launched")
         NSApp.setActivationPolicy(.accessory)
 
         setupMenuBar()
         ensureOutputDirectoryExists()
+        Log.general.info("App initialization complete")
     }
 
     private func setupMenuBar() {
+        Log.general.debug("Setting up menu bar...")
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
@@ -43,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.popover = popover
 
         setupStatusObserver()
+        Log.general.debug("Menu bar setup complete")
     }
 
     private func setupStatusObserver() {
@@ -111,8 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func ensureOutputDirectoryExists() {
         let config = ConfigManager.shared.load()
+        let outputDir = config.expandedOutputDirectory
+        Log.general.debug("Ensuring output directory exists: \(outputDir.path)")
         try? FileManager.default.createDirectory(
-            at: config.expandedOutputDirectory,
+            at: outputDir,
             withIntermediateDirectories: true
         )
     }

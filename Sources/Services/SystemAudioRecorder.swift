@@ -12,23 +12,34 @@ final class SystemAudioRecorder: NSObject {
     init(outputURL: URL) {
         self.outputURL = outputURL
         super.init()
+        Log.audio.debug("SystemAudioRecorder initialized with output: \(outputURL.lastPathComponent)")
     }
 
     func checkPermission() async -> Bool {
+        Log.audio.debug("Checking screen recording permission...")
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-            return !content.displays.isEmpty
+            let hasPermission = !content.displays.isEmpty
+            Log.audio.debug("Screen recording permission: \(hasPermission ? "granted" : "denied")")
+            return hasPermission
         } catch {
+            Log.audio.error("Screen recording permission check failed: \(error.localizedDescription)")
             return false
         }
     }
 
     func start() async throws {
+        Log.audio.info("Starting system audio recording...")
+
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
+        Log.audio.debug("Found \(content.displays.count) displays")
 
         guard let display = content.displays.first else {
+            Log.audio.error("No display found for screen capture")
             throw RecordingError.noDisplayFound
         }
+
+        Log.audio.debug("Using display: \(display.displayID)")
 
         let filter = SCContentFilter(display: display, excludingWindows: [])
 
@@ -43,6 +54,8 @@ final class SystemAudioRecorder: NSObject {
         config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
         config.showsCursor = false
 
+        Log.audio.debug("Stream config: sampleRate=16000, channels=1, excludesSelf=true")
+
         let format = AVAudioFormat(
             commonFormat: .pcmFormatInt16,
             sampleRate: 16000,
@@ -56,25 +69,35 @@ final class SystemAudioRecorder: NSObject {
             commonFormat: .pcmFormatInt16,
             interleaved: true
         )
+        Log.audio.debug("Audio file created for writing")
 
         stream = SCStream(filter: filter, configuration: config, delegate: self)
 
         guard let stream = stream else {
+            Log.audio.error("Failed to create SCStream")
             throw RecordingError.streamCreationFailed
         }
 
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: .global(qos: .userInitiated))
+        Log.audio.debug("Stream output handler added")
+
         try await stream.startCapture()
         isRecording = true
+        Log.audio.info("System audio recording started")
     }
 
     func stop() async {
-        guard isRecording, let stream = stream else { return }
+        Log.audio.info("Stopping system audio recording...")
+        guard isRecording, let stream = stream else {
+            Log.audio.debug("Not recording, ignoring stop")
+            return
+        }
 
         do {
             try await stream.stopCapture()
+            Log.audio.info("System audio recording stopped")
         } catch {
-            print("Error stopping stream: \(error)")
+            Log.audio.error("Error stopping stream: \(error.localizedDescription)")
         }
 
         self.stream = nil
@@ -103,7 +126,7 @@ final class SystemAudioRecorder: NSObject {
 @available(macOS 13.0, *)
 extension SystemAudioRecorder: SCStreamDelegate {
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        print("Stream stopped with error: \(error)")
+        Log.audio.error("Stream stopped with error: \(error.localizedDescription)")
         isRecording = false
     }
 }
@@ -149,7 +172,7 @@ extension SystemAudioRecorder: SCStreamOutput {
         do {
             try audioFile.write(from: pcmBuffer)
         } catch {
-            print("Error writing audio: \(error)")
+            Log.audio.error("Error writing audio buffer: \(error.localizedDescription)")
         }
     }
 }
