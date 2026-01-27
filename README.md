@@ -18,14 +18,14 @@ brew install whisper-cpp
 
 ### Build the App
 
-**Option 1: Using Swift Package Manager**
+#### Option 1: Using Swift Package Manager
 
 ```bash
 cd MeetingRecorder
 swift build -c release
 ```
 
-**Option 2: Using Xcode (via xcodegen)**
+#### Option 2: Using Xcode (via xcodegen)
 
 ```bash
 # Install xcodegen if not already installed
@@ -38,6 +38,27 @@ xcodegen generate
 # Open in Xcode
 open MeetingRecorder.xcodeproj
 ```
+
+### Install the App
+
+After building, the app bundle is at:
+
+```
+build/Meeting Recorder.app
+```
+
+To install:
+
+```bash
+cp -r "build/Meeting Recorder.app" /Applications/
+```
+
+Or drag it to Applications in Finder.
+
+The app is a proper macOS menubar app that:
+- Shows in the menubar (not the dock)
+- Has "Launch at Login" option in Settings
+- Can be installed in /Applications
 
 ## Usage
 
@@ -68,6 +89,7 @@ Grant these permissions when prompted, or enable them in System Settings > Priva
 
 Click "Settings..." in the menubar menu to configure:
 
+- **Launch at Login**: Start the app automatically when you log in
 - **Save Location**: Where transcripts are saved (default: ~/Documents/Transcripts)
 - **Whisper Model**: tiny (fastest), base (balanced), or small (most accurate)
 - **Speaker Labels**: Customize "Person 1" and "Person 2" labels
@@ -114,7 +136,7 @@ brew install whisper-cpp
 
 ## Architecture
 
-```
+```bash
 MeetingRecorder/
 ├── Sources/
 │   ├── App/

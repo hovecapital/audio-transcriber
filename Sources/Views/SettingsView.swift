@@ -1,19 +1,32 @@
+import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @State private var config: AppConfig
+    @State private var launchAtLogin: Bool
     @Environment(\.dismiss) private var dismiss
 
     init() {
         _config = State(initialValue: ConfigManager.shared.load())
+        _launchAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             Text("Settings")
                 .font(.title2)
                 .fontWeight(.semibold)
+
+            GroupBox("General") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Launch at Login", isOn: $launchAtLogin)
+                        .onChange(of: launchAtLogin) { newValue in
+                            setLaunchAtLogin(newValue)
+                        }
+                }
+                .padding(8)
+            }
 
             GroupBox("Output") {
                 VStack(alignment: .leading, spacing: 12) {
@@ -91,8 +104,8 @@ struct SettingsView: View {
                 .buttonStyle(.borderedProminent)
             }
         }
-        .padding(20)
-        .frame(width: 450, height: 420)
+        .padding(24)
+        .frame(width: 480, height: 520)
     }
 
     private func selectOutputDirectory() {
@@ -105,6 +118,21 @@ struct SettingsView: View {
 
         if panel.runModal() == .OK, let url = panel.url {
             config.outputDirectory = url.path
+        }
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+                Log.config.info("Launch at login enabled")
+            } else {
+                try SMAppService.mainApp.unregister()
+                Log.config.info("Launch at login disabled")
+            }
+        } catch {
+            Log.config.error("Failed to set launch at login: \(error.localizedDescription)")
+            launchAtLogin = SMAppService.mainApp.status == .enabled
         }
     }
 }
