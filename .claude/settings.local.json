@@ -71,7 +71,8 @@
       "Bash(grep:*)",
       "Bash(npx tsc:*)",
       "mcp__plugin_context7_context7__query-docs",
-      "Bash(file:*)"
+      "Bash(file:*)",
+      "WebSearch"
     ],
     "deny": [
       "Bash(rm -rf /)",

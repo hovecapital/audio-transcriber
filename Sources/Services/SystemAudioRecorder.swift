@@ -8,6 +8,8 @@ final class SystemAudioRecorder: NSObject {
     private var audioFile: AVAudioFile?
     private let outputURL: URL
     private var isRecording = false
+    private var targetFormat: AVAudioFormat?
+    private var converter: AVAudioConverter?
 
     init(outputURL: URL) {
         self.outputURL = outputURL
@@ -62,6 +64,7 @@ final class SystemAudioRecorder: NSObject {
             channels: 1,
             interleaved: true
         )!
+        targetFormat = format
 
         audioFile = try AVAudioFile(
             forWriting: outputURL,
@@ -102,6 +105,7 @@ final class SystemAudioRecorder: NSObject {
 
         self.stream = nil
         audioFile = nil
+        converter = nil
         isRecording = false
     }
 
@@ -135,7 +139,7 @@ extension SystemAudioRecorder: SCStreamDelegate {
 extension SystemAudioRecorder: SCStreamOutput {
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio else { return }
-        guard let audioFile = audioFile else { return }
+        guard let audioFile = audioFile, let targetFormat = targetFormat else { return }
 
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer),
               let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else {
@@ -148,29 +152,82 @@ extension SystemAudioRecorder: SCStreamOutput {
         var dataPointer: UnsafeMutablePointer<Int8>?
         let status = CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPointer)
 
-        guard status == kCMBlockBufferNoErr, let data = dataPointer else { return }
+        guard status == kCMBlockBufferNoErr, let data = dataPointer, length > 0 else { return }
 
-        let frameCount = length / Int(asbd.pointee.mBytesPerFrame)
+        let incomingSampleRate = asbd.pointee.mSampleRate
+        let incomingChannels = asbd.pointee.mChannelsPerFrame
+        let bytesPerFrame = asbd.pointee.mBytesPerFrame
+        let isFloat = (asbd.pointee.mFormatFlags & kAudioFormatFlagIsFloat) != 0
+        let isNonInterleaved = (asbd.pointee.mFormatFlags & kAudioFormatFlagIsNonInterleaved) != 0
+
+        let frameCount = length / Int(bytesPerFrame)
         guard frameCount > 0 else { return }
 
-        guard let pcmBuffer = AVAudioPCMBuffer(
-            pcmFormat: AVAudioFormat(
-                commonFormat: .pcmFormatInt16,
-                sampleRate: Double(asbd.pointee.mSampleRate),
-                channels: AVAudioChannelCount(asbd.pointee.mChannelsPerFrame),
-                interleaved: true
-            )!,
-            frameCapacity: AVAudioFrameCount(frameCount)
+        let commonFormat: AVAudioCommonFormat = isFloat ? .pcmFormatFloat32 : .pcmFormatInt16
+
+        guard let incomingFormat = AVAudioFormat(
+            commonFormat: commonFormat,
+            sampleRate: incomingSampleRate,
+            channels: AVAudioChannelCount(incomingChannels),
+            interleaved: !isNonInterleaved
         ) else { return }
 
-        pcmBuffer.frameLength = AVAudioFrameCount(frameCount)
-
-        if let int16Data = pcmBuffer.int16ChannelData {
-            memcpy(int16Data[0], data, length)
+        if converter == nil {
+            Log.audio.debug("Incoming audio: \(incomingSampleRate)Hz, \(incomingChannels)ch, float=\(isFloat), nonInterleaved=\(isNonInterleaved), bytesPerFrame=\(bytesPerFrame)")
+            converter = AVAudioConverter(from: incomingFormat, to: targetFormat)
+            if converter == nil {
+                Log.audio.error("Failed to create audio converter from \(incomingFormat) to \(targetFormat)")
+                return
+            }
         }
 
+        guard let converter = converter else { return }
+
+        guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: incomingFormat, frameCapacity: AVAudioFrameCount(frameCount)) else {
+            return
+        }
+        inputBuffer.frameLength = AVAudioFrameCount(frameCount)
+
+        if isFloat {
+            if let floatData = inputBuffer.floatChannelData {
+                memcpy(floatData[0], data, length)
+            }
+        } else {
+            if let int16Data = inputBuffer.int16ChannelData {
+                memcpy(int16Data[0], data, length)
+            }
+        }
+
+        let ratio = targetFormat.sampleRate / incomingFormat.sampleRate
+        let outputFrameCapacity = AVAudioFrameCount(Double(inputBuffer.frameLength) * ratio) + 1
+
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCapacity) else {
+            return
+        }
+
+        var convError: NSError?
+        var inputConsumed = false
+        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            if inputConsumed {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            inputConsumed = true
+            outStatus.pointee = .haveData
+            return inputBuffer
+        }
+
+        let convStatus = converter.convert(to: outputBuffer, error: &convError, withInputFrom: inputBlock)
+
+        if convStatus == .error {
+            Log.audio.error("Audio conversion failed: \(convError?.localizedDescription ?? "unknown")")
+            return
+        }
+
+        guard outputBuffer.frameLength > 0 else { return }
+
         do {
-            try audioFile.write(from: pcmBuffer)
+            try audioFile.write(from: outputBuffer)
         } catch {
             Log.audio.error("Error writing audio buffer: \(error.localizedDescription)")
         }
