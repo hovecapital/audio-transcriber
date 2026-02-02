@@ -92,7 +92,91 @@ final class AudioRecordingManager: ObservableObject {
         await processRecording(session: session)
     }
 
-    private func processRecording(session: RecordingSession) async {
+    func saveForLater() async {
+        Log.audio.info("Save for later requested")
+        guard isRecording, var session = currentSession else {
+            Log.audio.debug("Not recording, ignoring save for later request")
+            return
+        }
+
+        stopDurationTimer()
+
+        Log.audio.info("Stopping recorders for save...")
+        micRecorder?.stop()
+        await systemRecorder?.stop()
+
+        session.endTime = Date()
+
+        let sessionDir = session.micFilePath.deletingLastPathComponent()
+        let metadata = UnprocessedSession(
+            id: session.id,
+            startTime: session.startTime,
+            endTime: session.endTime!,
+            sessionDirectory: sessionDir,
+            micFilePath: session.micFilePath,
+            systemFilePath: session.systemFilePath
+        )
+
+        let metadataURL = sessionDir.appendingPathComponent(UnprocessedSession.metadataFilename)
+        do {
+            let data = try JSONEncoder().encode(metadata)
+            try data.write(to: metadataURL)
+            Log.audio.info("Saved session metadata to: \(metadataURL.path)")
+        } catch {
+            Log.audio.error("Failed to save metadata: \(error.localizedDescription)")
+        }
+
+        isRecording = false
+        currentSession = nil
+        await AppState.shared.updateStatus(.idle)
+    }
+
+    func discardCurrentSession() async {
+        Log.audio.info("Discard session requested")
+        guard isRecording, let session = currentSession else {
+            Log.audio.debug("Not recording, ignoring discard request")
+            return
+        }
+
+        stopDurationTimer()
+
+        Log.audio.info("Stopping recorders for discard...")
+        micRecorder?.stop()
+        await systemRecorder?.stop()
+
+        let sessionDir = session.micFilePath.deletingLastPathComponent()
+        do {
+            try FileManager.default.removeItem(at: sessionDir)
+            Log.audio.info("Deleted session directory: \(sessionDir.path)")
+        } catch {
+            Log.audio.error("Failed to delete session: \(error.localizedDescription)")
+        }
+
+        isRecording = false
+        currentSession = nil
+        await AppState.shared.updateStatus(.idle)
+    }
+
+    func processUnprocessedSession(_ unprocessed: UnprocessedSession) async {
+        Log.audio.info("Processing unprocessed session: \(unprocessed.id)")
+
+        let session = RecordingSession(
+            id: unprocessed.id,
+            startTime: unprocessed.startTime,
+            endTime: unprocessed.endTime,
+            micFilePath: unprocessed.micFilePath,
+            systemFilePath: unprocessed.systemFilePath,
+            status: .processing(progress: 0, message: "")
+        )
+
+        await processRecording(session: session)
+
+        let metadataURL = unprocessed.sessionDirectory.appendingPathComponent(UnprocessedSession.metadataFilename)
+        try? FileManager.default.removeItem(at: metadataURL)
+        Log.audio.debug("Removed metadata file: \(metadataURL.path)")
+    }
+
+    func processRecording(session: RecordingSession) async {
         Log.audio.info("Processing recording for session: \(session.id)")
         let currentConfig = ConfigManager.shared.load()
 

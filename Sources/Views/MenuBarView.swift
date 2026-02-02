@@ -1,9 +1,14 @@
+import AppKit
 import SwiftUI
 
 struct MenuBarView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var recordingManager: AudioRecordingManager
     @State private var showSettings = false
+    @State private var showQuitDialog = false
+    @State private var unprocessedSessions: [UnprocessedSession] = []
+
+    private let scanner = UnprocessedSessionScanner()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -19,6 +24,15 @@ struct MenuBarView: View {
         }
         .padding(8)
         .frame(width: 220)
+        .onAppear { refreshUnprocessedSessions() }
+        .alert("Recording in Progress", isPresented: $showQuitDialog) {
+            Button("Process Now") { processAndQuit() }
+            Button("Save for Later") { saveForLaterAndQuit() }
+            Button("Discard", role: .destructive) { discardAndQuit() }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You have an active recording. What would you like to do?")
+        }
     }
 
     @ViewBuilder
@@ -118,6 +132,24 @@ struct MenuBarView: View {
         }
         .buttonStyle(.plain)
 
+        if !unprocessedSessions.isEmpty {
+            Menu {
+                ForEach(unprocessedSessions) { session in
+                    Button(action: { processSession(session) }) {
+                        Text("\(session.formattedDate) (\(session.formattedDuration), \(session.formattedFileSize))")
+                    }
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "clock.arrow.circlepath")
+                    Text("Process Old Recordings")
+                    Text("(\(unprocessedSessions.count))")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .disabled(appState.status.isRecording || appState.status.isProcessing)
+        }
+
         Divider()
 
         Button(action: quitApp) {
@@ -158,6 +190,45 @@ struct MenuBarView: View {
     }
 
     private func quitApp() {
-        NSApplication.shared.terminate(nil)
+        if appState.status.isRecording {
+            showQuitDialog = true
+        } else {
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    private func processAndQuit() {
+        Task {
+            await recordingManager.stopRecording()
+            while appState.status.isProcessing {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    private func saveForLaterAndQuit() {
+        Task {
+            await recordingManager.saveForLater()
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    private func discardAndQuit() {
+        Task {
+            await recordingManager.discardCurrentSession()
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    private func refreshUnprocessedSessions() {
+        unprocessedSessions = scanner.scan()
+    }
+
+    private func processSession(_ session: UnprocessedSession) {
+        Task {
+            await recordingManager.processUnprocessedSession(session)
+            refreshUnprocessedSessions()
+        }
     }
 }

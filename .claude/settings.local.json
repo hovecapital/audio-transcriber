@@ -72,7 +72,9 @@
       "Bash(npx tsc:*)",
       "mcp__plugin_context7_context7__query-docs",
       "Bash(file:*)",
-      "WebSearch"
+      "WebSearch",
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:verification-before-completion)"
     ],
     "deny": [
       "Bash(rm -rf /)",

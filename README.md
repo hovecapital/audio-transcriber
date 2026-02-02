@@ -1,101 +1,110 @@
 # Meeting Recorder
 
-A macOS menubar application that records system audio and microphone input during meetings, then transcribes the conversation with speaker diarization into a readable markdown document.
+A macOS menu bar app that records meeting audio from your microphone and system audio, then transcribes it to markdown using Whisper.
+
+## Features
+
+- Records microphone audio (your voice) and system audio (remote participants) simultaneously
+- Transcribes both audio streams using whisper.cpp
+- Generates timestamped markdown transcripts with speaker labels
+- Menu bar interface for quick access
+- Configurable Whisper model size (tiny/base/small)
+- Custom speaker labels
+- Auto-open transcripts after processing
+- Graceful shutdown handling with recovery options
+- Process old/interrupted recordings later
 
 ## Requirements
 
-- macOS 13.0 (Ventura) or later
-- Xcode 15.0 or later
-- whisper.cpp CLI tool for transcription
+- macOS 13.0 or later
+- Microphone permission
+- Screen recording permission (for system audio capture)
+- whisper.cpp CLI installed (models downloaded automatically)
 
 ## Installation
 
-### Install whisper.cpp
-
-```bash
-brew install whisper-cpp
-```
-
 ### Build the App
 
-#### Option 1: Using Swift Package Manager
-
 ```bash
-cd MeetingRecorder
+# Build release binary
 swift build -c release
+
+# Create app bundle
+mkdir -p "build/Meeting Recorder.app/Contents/MacOS"
+mkdir -p "build/Meeting Recorder.app/Contents/Resources"
+
+# Copy files into bundle
+cp .build/release/MeetingRecorder "build/Meeting Recorder.app/Contents/MacOS/"
+cp Info.plist "build/Meeting Recorder.app/Contents/"
+cp AppIcon.icns "build/Meeting Recorder.app/Contents/Resources/"
+echo "APPL????" > "build/Meeting Recorder.app/Contents/PkgInfo"
 ```
 
-#### Option 2: Using Xcode (via xcodegen)
+### Install
 
-```bash
-# Install xcodegen if not already installed
-brew install xcodegen
-
-# Generate Xcode project
-cd MeetingRecorder
-xcodegen generate
-
-# Open in Xcode
-open MeetingRecorder.xcodeproj
-```
-
-### Install the App
-
-After building, the app bundle is at:
-
-```bash
-build/Meeting Recorder.app
-```
-
-To install:
+Drag `build/Meeting Recorder.app` to your Applications folder:
 
 ```bash
 cp -r "build/Meeting Recorder.app" /Applications/
 ```
 
-Or drag it to Applications in Finder.
+Or copy it manually in Finder.
 
-The app is a proper macOS menubar app that:
+### Launch
 
-- Shows in the menubar (not the dock)
-- Has "Launch at Login" option in Settings
-- Can be installed in /Applications
+- Open from Applications or Launchpad
+- The app runs in the menu bar (no dock icon)
+- Look for the microphone icon in your menu bar
+
+### Quick Development Run
+
+For development without building the full app:
+
+```bash
+swift run
+```
 
 ## Usage
 
-1. Launch the app - it will appear as an icon in your menubar
-2. Click the menubar icon to see the dropdown menu
-3. Click "Start Recording" to begin capturing audio
-4. Conduct your meeting
-5. Click "Stop Recording" when finished
-6. The app will automatically transcribe the audio and save a markdown file
+### Recording
 
-## Features
+1. Click the menu bar icon
+2. Click "Start Recording"
+3. Conduct your meeting
+4. Click "Stop Recording"
+5. Wait for transcription to complete
+6. Transcript opens automatically (if enabled)
 
-- **Dual Audio Capture**: Records both microphone (your voice) and system audio (remote participants)
-- **Local Transcription**: Uses Whisper for privacy-focused, offline transcription
-- **Markdown Output**: Clean, readable transcripts with speaker labels and timestamps
-- **Menubar App**: Unobtrusive, always accessible from the menubar
+### Quit During Recording
 
-## Permissions
+If you quit while recording, you'll see a dialog with options:
 
-The app requires:
+- **Process Now** - Stops recording, transcribes, then quits
+- **Save for Later** - Saves session for later processing, quits immediately
+- **Discard** - Deletes the recording, quits immediately
 
-- **Microphone Access**: To record your voice
-- **Screen Recording**: Required by ScreenCaptureKit to capture system audio
+### Process Old Recordings
 
-Grant these permissions when prompted, or enable them in System Settings > Privacy & Security.
+If you have saved recordings from interrupted sessions:
+
+1. Click the menu bar icon
+2. Click "Process Old Recordings"
+3. Select a session from the list to process it
 
 ## Configuration
 
-Click "Settings..." in the menubar menu to configure:
+Access settings via the menu bar icon > Settings.
 
-- **Launch at Login**: Start the app automatically when you log in
-- **Save Location**: Where transcripts are saved (default: ~/Documents/Transcripts)
-- **Whisper Model**: tiny (fastest), base (balanced), or small (most accurate)
-- **Speaker Labels**: Customize "Person 1" and "Person 2" labels
-- **Auto-open**: Automatically open transcript after processing
-- **Delete Audio**: Remove audio files after successful transcription
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Output Directory | Where transcripts are saved | `~/Documents/Transcripts` |
+| Whisper Model | Transcription model (tiny/base/small) | Base |
+| Person 1 Label | Label for microphone audio | Person 1 |
+| Person 2 Label | Label for system audio | Person 2 |
+| Auto-open Transcript | Open transcript after processing | Yes |
+| Delete Audio After | Remove WAV files after transcription | Yes |
+
+Configuration is stored at `~/Library/Application Support/MeetingRecorder/config.json`.
 
 ## Output Format
 
@@ -111,55 +120,47 @@ Transcripts are saved as markdown files:
 
 [00:00:05] **Person 1:** Let's discuss the project timeline.
 
-[00:00:12] **Person 2:** I think we should start with...
+[00:00:12] **Person 2:** I think we should aim for Q2 delivery.
 ```
+
+## File Structure
+
+```
+~/Documents/Transcripts/           # Default output directory
+├── session_2025-01-26_143022/     # Session directory (temporary)
+│   ├── microphone.wav             # Your audio
+│   ├── system_audio.wav           # Remote audio
+│   └── unprocessed.json           # Metadata (if saved for later)
+└── meeting_2025-01-26_14-30.md    # Final transcript
+```
+
+## Permissions
+
+On first run, macOS will prompt for:
+
+1. **Microphone Access** - Required to record your voice
+2. **Screen Recording** - Required to capture system audio via ScreenCaptureKit
+
+Grant these in System Settings > Privacy & Security.
 
 ## Troubleshooting
 
-### "Whisper not found" error
-
-Install whisper.cpp:
-
-```bash
-brew install whisper-cpp
-```
-
 ### No system audio captured
 
-1. Go to System Settings > Privacy & Security > Screen Recording
-2. Enable Meeting Recorder
-3. Restart the app
+- Ensure Screen Recording permission is granted
+- Restart the app after granting permission
 
-### Transcription is slow
+### Transcription fails
 
-- Use the "tiny" model for faster transcription
-- The first run downloads the Whisper model, which takes time
+- Check that whisper.cpp is installed and accessible
+- Models are downloaded to `~/Library/Application Support/MeetingRecorder/models/`
+- Try a smaller model if out of memory
 
-## Architecture
+### App doesn't appear in menu bar
 
-```bash
-MeetingRecorder/
-├── Sources/
-│   ├── App/
-│   │   └── MeetingRecorderApp.swift    # App entry point
-│   ├── Models/
-│   │   ├── AppState.swift              # Global app state
-│   │   └── AppConfig.swift             # Configuration management
-│   ├── Services/
-│   │   ├── AudioRecordingManager.swift # Recording orchestration
-│   │   ├── MicrophoneRecorder.swift    # Microphone capture
-│   │   ├── SystemAudioRecorder.swift   # ScreenCaptureKit audio
-│   │   ├── TranscriptionService.swift  # Whisper integration
-│   │   └── MarkdownGenerator.swift     # Transcript generation
-│   └── Views/
-│       ├── MenuBarView.swift           # Menubar UI
-│       └── SettingsView.swift          # Settings window
-├── Info.plist
-├── MeetingRecorder.entitlements
-├── Package.swift
-└── project.yml                         # Xcodegen config
-```
+- Check if already running in Activity Monitor
+- Ensure macOS 13.0 or later
 
 ## License
 
-MIT License
+MIT
