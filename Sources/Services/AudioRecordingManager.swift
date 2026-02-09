@@ -8,16 +8,22 @@ final class AudioRecordingManager: ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var currentSession: RecordingSession?
     @Published private(set) var recordingDuration: TimeInterval = 0
+    @Published private(set) var realTimeCoordinator: RealTimeRecordingCoordinator?
 
     private var micRecorder: MicrophoneRecorder?
     private var systemRecorder: SystemAudioRecorder?
     private var durationTimer: Timer?
 
-    private let config: AppConfig
+    private var config: AppConfig
 
     private init() {
         config = ConfigManager.shared.load()
         Log.audio.info("AudioRecordingManager initialized")
+    }
+
+    func reloadConfig() {
+        config = ConfigManager.shared.load()
+        realTimeCoordinator?.updateConfig(config)
     }
 
     func startRecording() async throws {
@@ -27,13 +33,14 @@ final class AudioRecordingManager: ObservableObject {
             return
         }
 
+        config = ConfigManager.shared.load()
+
         Log.audio.info("Checking permissions...")
-        let hasPermissions = await checkPermissions()
-        guard hasPermissions else {
-            Log.audio.error("Permission denied for microphone or screen recording")
-            throw RecordingManagerError.permissionDenied
+        if let permissionError = await checkPermissions() {
+            Log.audio.error("Permission error: \(permissionError.localizedDescription)")
+            throw permissionError
         }
-        Log.audio.info("Permissions granted")
+        Log.audio.info("All permissions granted")
 
         let sessionDir = createSessionDirectory()
         let micURL = sessionDir.appendingPathComponent("microphone.wav")
@@ -53,6 +60,15 @@ final class AudioRecordingManager: ObservableObject {
 
         micRecorder = MicrophoneRecorder(outputURL: micURL)
         systemRecorder = SystemAudioRecorder(outputURL: systemURL)
+
+        if config.enableRealTimeTranscription {
+            let coordinator = RealTimeRecordingCoordinator(config: config)
+            realTimeCoordinator = coordinator
+            micRecorder?.bufferDelegate = coordinator
+            systemRecorder?.bufferDelegate = coordinator
+            coordinator.startSession()
+            Log.audio.info("Real-time transcription enabled")
+        }
 
         Log.audio.info("Starting microphone recorder...")
         try micRecorder?.start()
@@ -89,7 +105,10 @@ final class AudioRecordingManager: ObservableObject {
         isRecording = false
         Log.audio.info("Recording stopped. Duration: \(session.formattedDuration)")
 
-        await processRecording(session: session)
+        let realTimeResult = await realTimeCoordinator?.stopSession()
+        realTimeCoordinator = nil
+
+        await processRecording(session: session, realTimeResult: realTimeResult)
     }
 
     func saveForLater() async {
@@ -104,6 +123,9 @@ final class AudioRecordingManager: ObservableObject {
         Log.audio.info("Stopping recorders for save...")
         micRecorder?.stop()
         await systemRecorder?.stop()
+
+        _ = await realTimeCoordinator?.stopSession()
+        realTimeCoordinator = nil
 
         session.endTime = Date()
 
@@ -144,6 +166,9 @@ final class AudioRecordingManager: ObservableObject {
         micRecorder?.stop()
         await systemRecorder?.stop()
 
+        _ = await realTimeCoordinator?.stopSession()
+        realTimeCoordinator = nil
+
         let sessionDir = session.micFilePath.deletingLastPathComponent()
         do {
             try FileManager.default.removeItem(at: sessionDir)
@@ -169,64 +194,95 @@ final class AudioRecordingManager: ObservableObject {
             status: .processing(progress: 0, message: "")
         )
 
-        await processRecording(session: session)
+        await processRecording(session: session, realTimeResult: nil)
 
         let metadataURL = unprocessed.sessionDirectory.appendingPathComponent(UnprocessedSession.metadataFilename)
         try? FileManager.default.removeItem(at: metadataURL)
         Log.audio.debug("Removed metadata file: \(metadataURL.path)")
     }
 
-    func processRecording(session: RecordingSession) async {
+    func processRecording(
+        session: RecordingSession,
+        realTimeResult: (segments: [TranscriptSegment], analysis: MeetingAnalysis)?
+    ) async {
         Log.audio.info("Processing recording for session: \(session.id)")
         let currentConfig = ConfigManager.shared.load()
 
         await AppState.shared.updateStatus(.processing(progress: 0, message: "Starting transcription..."))
 
-        let transcriptionService = TranscriptionService(modelSize: currentConfig.whisperModelSize)
-
         do {
-            Log.audio.info("Transcribing microphone audio...")
-            await AppState.shared.updateStatus(.processing(progress: 0.1, message: "Transcribing microphone audio..."))
+            let allSegments: [TranscriptSegment]
+            var analysis = MeetingAnalysis.empty
 
-            let micSegments = try await transcriptionService.transcribe(
-                audioURL: session.micFilePath,
-                speaker: .person1
-            ) { progress, message in
-                Task { @MainActor in
-                    let overallProgress = 0.1 + (progress * 0.35)
-                    AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
+            if let result = realTimeResult, !result.segments.isEmpty {
+                Log.audio.info("Using real-time transcription results: \(result.segments.count) segments")
+                allSegments = result.segments
+                analysis = result.analysis
+                await AppState.shared.updateStatus(.processing(progress: 0.8, message: "Using real-time transcription..."))
+            } else {
+                let transcriptionService = TranscriptionService(modelSize: currentConfig.whisperModelSize)
+
+                Log.audio.info("Transcribing microphone audio...")
+                await AppState.shared.updateStatus(.processing(progress: 0.1, message: "Transcribing microphone audio..."))
+
+                let micSegments = try await transcriptionService.transcribe(
+                    audioURL: session.micFilePath,
+                    speaker: .person1
+                ) { progress, message in
+                    Task { @MainActor in
+                        let overallProgress = 0.1 + (progress * 0.35)
+                        AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
+                    }
                 }
-            }
-            Log.audio.info("Microphone transcription complete: \(micSegments.count) segments")
+                Log.audio.info("Microphone transcription complete: \(micSegments.count) segments")
 
-            Log.audio.info("Transcribing system audio...")
-            await AppState.shared.updateStatus(.processing(progress: 0.5, message: "Transcribing system audio..."))
+                Log.audio.info("Transcribing system audio...")
+                await AppState.shared.updateStatus(.processing(progress: 0.5, message: "Transcribing system audio..."))
 
-            let systemSegments = try await transcriptionService.transcribe(
-                audioURL: session.systemFilePath,
-                speaker: .person2
-            ) { progress, message in
-                Task { @MainActor in
-                    let overallProgress = 0.5 + (progress * 0.35)
-                    AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
+                let systemSegments = try await transcriptionService.transcribe(
+                    audioURL: session.systemFilePath,
+                    speaker: .person2
+                ) { progress, message in
+                    Task { @MainActor in
+                        let overallProgress = 0.5 + (progress * 0.35)
+                        AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
+                    }
                 }
+                Log.audio.info("System audio transcription complete: \(systemSegments.count) segments")
+
+                allSegments = (micSegments + systemSegments).sorted { $0.start < $1.start }
             }
-            Log.audio.info("System audio transcription complete: \(systemSegments.count) segments")
 
             await AppState.shared.updateStatus(.processing(progress: 0.9, message: "Generating transcript..."))
 
-            let generator = MarkdownGenerator(config: currentConfig)
-            let markdown = generator.generate(
-                micSegments: micSegments,
-                systemSegments: systemSegments,
-                session: session
-            )
+            let markdown: String
+            let transcriptURL: URL
 
-            let filename = MarkdownGenerator.generateFilename(for: session.startTime)
-            let transcriptURL = currentConfig.expandedOutputDirectory.appendingPathComponent(filename)
+            if realTimeResult != nil {
+                let generator = EnhancedMarkdownGenerator(config: currentConfig)
+                markdown = generator.generate(
+                    segments: allSegments,
+                    analysis: analysis,
+                    session: session
+                )
+                let filename = MarkdownGenerator.generateFilename(for: session.startTime)
+                transcriptURL = currentConfig.expandedOutputDirectory.appendingPathComponent(filename)
+                try generator.save(markdown: markdown, to: transcriptURL)
+            } else {
+                let generator = MarkdownGenerator(config: currentConfig)
+                let micSegments = allSegments.filter { $0.speaker == .person1 }
+                let systemSegments = allSegments.filter { $0.speaker == .person2 }
+                markdown = generator.generate(
+                    micSegments: micSegments,
+                    systemSegments: systemSegments,
+                    session: session
+                )
+                let filename = MarkdownGenerator.generateFilename(for: session.startTime)
+                transcriptURL = currentConfig.expandedOutputDirectory.appendingPathComponent(filename)
+                try generator.save(markdown: markdown, to: transcriptURL)
+            }
 
             Log.audio.info("Saving transcript to: \(transcriptURL.path)")
-            try generator.save(markdown: markdown, to: transcriptURL)
 
             if currentConfig.deleteAudioAfterTranscription {
                 Log.audio.debug("Deleting audio files...")
@@ -260,7 +316,7 @@ final class AudioRecordingManager: ObservableObject {
         currentSession = nil
     }
 
-    private func checkPermissions() async -> Bool {
+    private func checkPermissions() async -> RecordingManagerError? {
         let tempDir = FileManager.default.temporaryDirectory
         let tempMicURL = tempDir.appendingPathComponent("permission_check_mic.wav")
         let tempSystemURL = tempDir.appendingPathComponent("permission_check_system.wav")
@@ -271,9 +327,16 @@ final class AudioRecordingManager: ObservableObject {
         let hasMicPermission = await micRecorder.checkPermission()
         let hasSystemPermission = await systemRecorder.checkPermission()
 
-        Log.audio.debug("Mic permission: \(hasMicPermission), System permission: \(hasSystemPermission)")
+        Log.audio.info("Permission check - Microphone: \(hasMicPermission ? "GRANTED" : "DENIED"), Screen Recording: \(hasSystemPermission ? "GRANTED" : "DENIED")")
 
-        return hasMicPermission && hasSystemPermission
+        if !hasMicPermission && !hasSystemPermission {
+            return .bothPermissionsDenied
+        } else if !hasMicPermission {
+            return .microphonePermissionDenied
+        } else if !hasSystemPermission {
+            return .screenRecordingPermissionDenied
+        }
+        return nil
     }
 
     private func createSessionDirectory() -> URL {
@@ -321,13 +384,19 @@ final class AudioRecordingManager: ObservableObject {
     }
 
     enum RecordingManagerError: LocalizedError {
-        case permissionDenied
+        case microphonePermissionDenied
+        case screenRecordingPermissionDenied
+        case bothPermissionsDenied
         case alreadyRecording
 
         var errorDescription: String? {
             switch self {
-            case .permissionDenied:
-                return "Microphone or screen recording permission denied. Please grant permissions in System Preferences."
+            case .microphonePermissionDenied:
+                return "Microphone permission denied. Open System Settings > Privacy & Security > Microphone and enable Meeting Recorder."
+            case .screenRecordingPermissionDenied:
+                return "Screen Recording permission denied. Open System Settings > Privacy & Security > Screen Recording and enable Meeting Recorder."
+            case .bothPermissionsDenied:
+                return "Both Microphone and Screen Recording permissions denied. Open System Settings > Privacy & Security and enable Meeting Recorder for both."
             case .alreadyRecording:
                 return "Recording is already in progress"
             }

@@ -2,8 +2,12 @@ import AVFoundation
 import Foundation
 
 final class MicrophoneRecorder {
-    private var audioRecorder: AVAudioRecorder?
+    private var audioEngine: AVAudioEngine?
+    private var audioFile: AVAudioFile?
     private let outputURL: URL
+    private var isRecording = false
+
+    weak var bufferDelegate: AudioBufferDelegate?
 
     init(outputURL: URL) {
         self.outputURL = outputURL
@@ -33,39 +37,99 @@ final class MicrophoneRecorder {
     }
 
     func start() throws {
-        Log.audio.info("Starting microphone recording...")
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatLinearPCM),
-            AVSampleRateKey: 16000.0,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false
-        ]
+        Log.audio.info("Starting microphone recording with AVAudioEngine...")
 
-        audioRecorder = try AVAudioRecorder(url: outputURL, settings: settings)
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
 
-        guard let recorder = audioRecorder else {
-            Log.audio.error("Failed to create AVAudioRecorder")
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        Log.audio.debug("Input format: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount) channels")
+
+        guard let targetFormat = AVAudioFormat(
+            commonFormat: .pcmFormatInt16,
+            sampleRate: 16000,
+            channels: 1,
+            interleaved: true
+        ) else {
+            Log.audio.error("Failed to create target audio format")
             throw RecordingError.initializationFailed
         }
 
-        recorder.prepareToRecord()
-        Log.audio.debug("Microphone recorder prepared")
+        audioFile = try AVAudioFile(
+            forWriting: outputURL,
+            settings: targetFormat.settings,
+            commonFormat: .pcmFormatInt16,
+            interleaved: true
+        )
 
-        guard recorder.record() else {
-            Log.audio.error("Failed to start recording")
-            throw RecordingError.recordingFailed
+        guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
+            Log.audio.error("Failed to create audio converter")
+            throw RecordingError.initializationFailed
         }
 
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+            self?.processBuffer(buffer, converter: converter, targetFormat: targetFormat)
+        }
+
+        engine.prepare()
+        try engine.start()
+
+        audioEngine = engine
+        isRecording = true
         Log.audio.info("Microphone recording started")
     }
 
     func stop() {
         Log.audio.info("Stopping microphone recording...")
-        audioRecorder?.stop()
-        audioRecorder = nil
+        guard isRecording else {
+            Log.audio.debug("Not recording, ignoring stop")
+            return
+        }
+
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
+        audioFile = nil
+        isRecording = false
         Log.audio.info("Microphone recording stopped")
+    }
+
+    private func processBuffer(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter, targetFormat: AVAudioFormat) {
+        let ratio = targetFormat.sampleRate / buffer.format.sampleRate
+        let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
+
+        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: outputFrameCapacity) else {
+            return
+        }
+
+        var error: NSError?
+        var inputConsumed = false
+        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            if inputConsumed {
+                outStatus.pointee = .noDataNow
+                return nil
+            }
+            inputConsumed = true
+            outStatus.pointee = .haveData
+            return buffer
+        }
+
+        let status = converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
+
+        guard status != .error, outputBuffer.frameLength > 0 else {
+            if let error = error {
+                Log.audio.error("Audio conversion error: \(error.localizedDescription)")
+            }
+            return
+        }
+
+        do {
+            try audioFile?.write(from: outputBuffer)
+        } catch {
+            Log.audio.error("Error writing audio buffer: \(error.localizedDescription)")
+        }
+
+        bufferDelegate?.audioRecorder(didReceiveBuffer: outputBuffer, speaker: .person1)
     }
 
     enum RecordingError: LocalizedError {

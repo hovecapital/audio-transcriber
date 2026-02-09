@@ -8,6 +8,12 @@ struct AppConfig: Codable {
     var person2Label: String
     var deleteAudioAfterTranscription: Bool
 
+    var enableRealTimeTranscription: Bool
+    var transcriptionChunkIntervalSeconds: Double
+    var llmAnalysisIntervalSeconds: Double
+    var llmProvider: LLMProvider
+    var llmModel: String
+
     enum WhisperModelSize: String, Codable, CaseIterable {
         case tiny = "tiny"
         case base = "base"
@@ -22,13 +28,37 @@ struct AppConfig: Codable {
         }
     }
 
+    enum LLMProvider: String, Codable, CaseIterable {
+        case anthropic
+        case openai
+
+        var displayName: String {
+            switch self {
+            case .anthropic: return "Anthropic (Claude)"
+            case .openai: return "OpenAI (GPT)"
+            }
+        }
+
+        var defaultModel: String {
+            switch self {
+            case .anthropic: return "claude-sonnet-4-20250514"
+            case .openai: return "gpt-4o"
+            }
+        }
+    }
+
     static let `default` = AppConfig(
         outputDirectory: "~/Documents/Transcripts",
         autoOpenTranscript: true,
         whisperModelSize: .base,
         person1Label: "Person 1",
         person2Label: "Person 2",
-        deleteAudioAfterTranscription: true
+        deleteAudioAfterTranscription: true,
+        enableRealTimeTranscription: false,
+        transcriptionChunkIntervalSeconds: 15.0,
+        llmAnalysisIntervalSeconds: 120.0,
+        llmProvider: .anthropic,
+        llmModel: "claude-sonnet-4-20250514"
     )
 
     var expandedOutputDirectory: URL {

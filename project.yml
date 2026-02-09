@@ -17,6 +17,9 @@ targets:
     platform: macOS
     sources:
       - path: Sources
+      - path: AppIcon.icns
+        type: file
+        buildPhase: resources
     settings:
       base:
         INFOPLIST_FILE: Info.plist
@@ -27,9 +30,13 @@ targets:
         CODE_SIGN_IDENTITY: "-"
     entitlements:
       path: MeetingRecorder.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
     info:
       path: Info.plist
       properties:
+        CFBundleIconFile: AppIcon
         LSUIElement: true
         NSMicrophoneUsageDescription: "Meeting Recorder needs microphone access to record your voice during meetings."
         NSAppleEventsUsageDescription: "Meeting Recorder needs to control other applications to capture system audio."
+        NSScreenCaptureUsageDescription: "Meeting Recorder needs screen recording access to capture system audio from meetings."

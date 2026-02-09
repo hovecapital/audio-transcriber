@@ -6,6 +6,7 @@ struct MenuBarView: View {
     @ObservedObject var recordingManager: AudioRecordingManager
     @State private var showSettings = false
     @State private var showQuitDialog = false
+    @State private var showLiveTranscript = false
     @State private var unprocessedSessions: [UnprocessedSession] = []
 
     private let scanner = UnprocessedSessionScanner()
@@ -32,6 +33,14 @@ struct MenuBarView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("You have an active recording. What would you like to do?")
+        }
+        .sheet(isPresented: $showLiveTranscript) {
+            if let coordinator = recordingManager.realTimeCoordinator {
+                RealTimeTranscriptView(
+                    coordinator: coordinator,
+                    config: ConfigManager.shared.load()
+                )
+            }
         }
     }
 
@@ -99,6 +108,16 @@ struct MenuBarView: View {
                 }
             }
             .buttonStyle(.plain)
+
+            if recordingManager.realTimeCoordinator != nil {
+                Button(action: { showLiveTranscript = true }) {
+                    HStack {
+                        Image(systemName: "text.bubble")
+                        Text("View Live Transcript")
+                    }
+                }
+                .buttonStyle(.plain)
+            }
         } else if !appState.status.isProcessing {
             Button(action: startRecording) {
                 HStack {

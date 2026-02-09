@@ -12,6 +12,8 @@ IMPORTANT: use the mysql MCP for inspecting the database.
 
 IMPORTANT: don't use emojis.
 
+IMPORTANT: ALWAYS BUILD THE .APP FILE!
+
 IMPORTANT: If given an error, do a web search for the error message to find solutions first.
 
 IMPORTANT: use context7 mcp to read the documentation for libraries used.

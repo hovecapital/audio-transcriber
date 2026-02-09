@@ -74,7 +74,10 @@
       "Bash(file:*)",
       "WebSearch",
       "Skill(superpowers:brainstorming)",
-      "Skill(superpowers:verification-before-completion)"
+      "Skill(superpowers:verification-before-completion)",
+      "Bash(swift build:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(plutil:*)"
     ],
     "deny": [
       "Bash(rm -rf /)",

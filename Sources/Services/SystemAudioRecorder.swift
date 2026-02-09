@@ -11,6 +11,8 @@ final class SystemAudioRecorder: NSObject {
     private var targetFormat: AVAudioFormat?
     private var converter: AVAudioConverter?
 
+    weak var bufferDelegate: AudioBufferDelegate?
+
     init(outputURL: URL) {
         self.outputURL = outputURL
         super.init()
@@ -24,8 +26,15 @@ final class SystemAudioRecorder: NSObject {
             let hasPermission = !content.displays.isEmpty
             Log.audio.debug("Screen recording permission: \(hasPermission ? "granted" : "denied")")
             return hasPermission
-        } catch {
-            Log.audio.error("Screen recording permission check failed: \(error.localizedDescription)")
+        } catch let error as NSError {
+            switch error.code {
+            case -3801:
+                Log.audio.warning("Screen recording permission denied - user must grant in System Settings")
+            case -3802:
+                Log.audio.warning("Screen recording permission not yet determined - user must grant in System Settings")
+            default:
+                Log.audio.error("Screen recording permission check failed with code \(error.code): \(error.localizedDescription)")
+            }
             return false
         }
     }
@@ -231,5 +240,7 @@ extension SystemAudioRecorder: SCStreamOutput {
         } catch {
             Log.audio.error("Error writing audio buffer: \(error.localizedDescription)")
         }
+
+        bufferDelegate?.audioRecorder(didReceiveBuffer: outputBuffer, speaker: .person2)
     }
 }
