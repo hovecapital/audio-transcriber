@@ -11,6 +11,8 @@ struct SettingsView: View {
     @State private var showAPIKeyField = false
     @State private var micPermissionStatus: AVAuthorizationStatus = .notDetermined
     @State private var screenRecordingGranted = false
+    @State private var accessibilityGranted = false
+    @ObservedObject private var autocorrectMonitor = AutocorrectMonitor.shared
     @Environment(\.dismiss) private var dismiss
 
     init() {
@@ -32,11 +34,13 @@ struct SettingsView: View {
                     outputSection
                     transcriptionSection
                     realTimeSection
+                    autocorrectSection
                     speakerLabelsSection
                 }
             }
             .onAppear {
                 checkPermissions()
+                Task { await autocorrectMonitor.checkConnection() }
             }
 
             Spacer()
@@ -96,6 +100,25 @@ struct SettingsView: View {
                     }
                 }
 
+                HStack {
+                    Text("Accessibility:")
+                        .frame(width: 120, alignment: .leading)
+                    if accessibilityGranted {
+                        Text("Granted")
+                            .foregroundColor(.green)
+                    } else {
+                        Text("Not Granted")
+                            .foregroundColor(.red)
+                    }
+                    Spacer()
+                    if !accessibilityGranted {
+                        Button("Open Settings") {
+                            SystemSettingsHelper.openAccessibilitySettings()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+
                 Button("Refresh Status") {
                     checkPermissions()
                 }
@@ -128,6 +151,7 @@ struct SettingsView: View {
 
     private func checkPermissions() {
         micPermissionStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        accessibilityGranted = AccessibilityReader.isTrusted()
 
         if #available(macOS 13.0, *) {
             Task {
@@ -265,6 +289,190 @@ struct SettingsView: View {
                 }
             }
             .padding(8)
+        }
+    }
+
+    @ViewBuilder
+    private var autocorrectSection: some View {
+        GroupBox("Autocorrect") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Backend:")
+                        .frame(width: 120, alignment: .leading)
+                    Picker("", selection: $config.autocorrectBackend) {
+                        ForEach(AppConfig.AutocorrectBackend.allCases, id: \.self) { backend in
+                            Text(backend.displayName).tag(backend)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: config.autocorrectBackend) { newValue in
+                        config.autocorrectServerURL = newValue.defaultURL
+                    }
+                }
+
+                HStack {
+                    Text("Server URL:")
+                        .frame(width: 120, alignment: .leading)
+                    TextField("http://localhost:8080", text: $config.autocorrectServerURL)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                Divider()
+
+                connectionStatusRow
+
+                modelStatusRow
+
+                if case .error(let message) = autocorrectMonitor.connectionStatus.serverState {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                        setupInstructions
+                    }
+                }
+
+                Divider()
+
+                HStack {
+                    Text("Model:")
+                        .frame(width: 120, alignment: .leading)
+                    TextField("Model name", text: $config.autocorrectModel)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack {
+                    Text("Timeout:")
+                        .frame(width: 120, alignment: .leading)
+                    Slider(
+                        value: $config.autocorrectTimeout,
+                        in: 1...10,
+                        step: 0.5
+                    )
+                    Text("\(config.autocorrectTimeout, specifier: "%.1f")s")
+                        .frame(width: 40)
+                }
+
+                if autocorrectMonitor.isRunning {
+                    Divider()
+                    statsRow
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    @ViewBuilder
+    private var connectionStatusRow: some View {
+        HStack {
+            Text("Connection:")
+                .frame(width: 120, alignment: .leading)
+            Circle()
+                .fill(connectionDotColor)
+                .frame(width: 8, height: 8)
+            Text(connectionStatusText)
+                .foregroundColor(.secondary)
+                .font(.caption)
+            Spacer()
+            Button("Test Connection") {
+                Task { await autocorrectMonitor.checkConnection() }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(autocorrectMonitor.connectionStatus.serverState == .checking)
+        }
+    }
+
+    private var connectionDotColor: Color {
+        switch autocorrectMonitor.connectionStatus.serverState {
+        case .unknown: return .gray
+        case .checking: return .yellow
+        case .connected: return .green
+        case .error: return .red
+        }
+    }
+
+    private var connectionStatusText: String {
+        switch autocorrectMonitor.connectionStatus.serverState {
+        case .unknown: return "Not checked"
+        case .checking: return "Checking..."
+        case .connected: return "Connected"
+        case .error: return "Disconnected"
+        }
+    }
+
+    @ViewBuilder
+    private var modelStatusRow: some View {
+        if case .connected = autocorrectMonitor.connectionStatus.serverState {
+            HStack {
+                Text("Model Status:")
+                    .frame(width: 120, alignment: .leading)
+                if autocorrectMonitor.connectionStatus.modelAvailable == true {
+                    if !autocorrectMonitor.connectionStatus.availableModels.isEmpty {
+                        Text(autocorrectMonitor.connectionStatus.availableModels.joined(separator: ", "))
+                            .foregroundColor(.green)
+                            .font(.caption)
+                    } else {
+                        Text("Available")
+                            .foregroundColor(.green)
+                            .font(.caption)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Model '\(config.autocorrectModel)' not found")
+                            .foregroundColor(.orange)
+                            .font(.caption)
+                        if !autocorrectMonitor.connectionStatus.availableModels.isEmpty {
+                            Text("Available: \(autocorrectMonitor.connectionStatus.availableModels.joined(separator: ", "))")
+                                .foregroundColor(.secondary)
+                                .font(.caption)
+                        }
+                    }
+                }
+                Spacer()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var setupInstructions: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Setup:")
+                    .font(.caption)
+                    .fontWeight(.medium)
+                if config.autocorrectBackend == .llamaCpp {
+                    Text("llama-server -m /path/to/model.gguf --port 8080")
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                } else {
+                    Text("ollama serve")
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                    Text("ollama pull \(config.autocorrectModel)")
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(4)
+        }
+    }
+
+    @ViewBuilder
+    private var statsRow: some View {
+        HStack {
+            Text("Stats:")
+                .frame(width: 120, alignment: .leading)
+            Text("\(autocorrectMonitor.correctionCount) corrections")
+                .font(.caption)
+                .foregroundColor(.secondary)
+            if let lastTime = autocorrectMonitor.lastCorrectionTime {
+                Text("-- last: \(lastTime, style: .relative) ago")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
         }
     }
 

@@ -14,6 +14,31 @@ struct AppConfig: Codable {
     var llmProvider: LLMProvider
     var llmModel: String
 
+    var autocorrectEnabled: Bool
+    var autocorrectBackend: AutocorrectBackend
+    var autocorrectServerURL: String
+    var autocorrectModel: String
+    var autocorrectTimeout: Double
+
+    enum AutocorrectBackend: String, Codable, CaseIterable {
+        case ollama
+        case llamaCpp
+
+        var displayName: String {
+            switch self {
+            case .ollama: return "Ollama"
+            case .llamaCpp: return "llama.cpp"
+            }
+        }
+
+        var defaultURL: String {
+            switch self {
+            case .ollama: return "http://localhost:11434"
+            case .llamaCpp: return "http://localhost:8080"
+            }
+        }
+    }
+
     enum WhisperModelSize: String, Codable, CaseIterable {
         case tiny = "tiny"
         case base = "base"
@@ -58,8 +83,69 @@ struct AppConfig: Codable {
         transcriptionChunkIntervalSeconds: 15.0,
         llmAnalysisIntervalSeconds: 120.0,
         llmProvider: .anthropic,
-        llmModel: "claude-sonnet-4-20250514"
+        llmModel: "claude-sonnet-4-20250514",
+        autocorrectEnabled: false,
+        autocorrectBackend: .llamaCpp,
+        autocorrectServerURL: "http://localhost:8080",
+        autocorrectModel: "llama3.2:3b",
+        autocorrectTimeout: 3.0
     )
+
+    init(
+        outputDirectory: String,
+        autoOpenTranscript: Bool,
+        whisperModelSize: WhisperModelSize,
+        person1Label: String,
+        person2Label: String,
+        deleteAudioAfterTranscription: Bool,
+        enableRealTimeTranscription: Bool,
+        transcriptionChunkIntervalSeconds: Double,
+        llmAnalysisIntervalSeconds: Double,
+        llmProvider: LLMProvider,
+        llmModel: String,
+        autocorrectEnabled: Bool,
+        autocorrectBackend: AutocorrectBackend,
+        autocorrectServerURL: String,
+        autocorrectModel: String,
+        autocorrectTimeout: Double
+    ) {
+        self.outputDirectory = outputDirectory
+        self.autoOpenTranscript = autoOpenTranscript
+        self.whisperModelSize = whisperModelSize
+        self.person1Label = person1Label
+        self.person2Label = person2Label
+        self.deleteAudioAfterTranscription = deleteAudioAfterTranscription
+        self.enableRealTimeTranscription = enableRealTimeTranscription
+        self.transcriptionChunkIntervalSeconds = transcriptionChunkIntervalSeconds
+        self.llmAnalysisIntervalSeconds = llmAnalysisIntervalSeconds
+        self.llmProvider = llmProvider
+        self.llmModel = llmModel
+        self.autocorrectEnabled = autocorrectEnabled
+        self.autocorrectBackend = autocorrectBackend
+        self.autocorrectServerURL = autocorrectServerURL
+        self.autocorrectModel = autocorrectModel
+        self.autocorrectTimeout = autocorrectTimeout
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
+        autoOpenTranscript = try container.decode(Bool.self, forKey: .autoOpenTranscript)
+        whisperModelSize = try container.decode(WhisperModelSize.self, forKey: .whisperModelSize)
+        person1Label = try container.decode(String.self, forKey: .person1Label)
+        person2Label = try container.decode(String.self, forKey: .person2Label)
+        deleteAudioAfterTranscription = try container.decode(Bool.self, forKey: .deleteAudioAfterTranscription)
+        enableRealTimeTranscription = try container.decode(Bool.self, forKey: .enableRealTimeTranscription)
+        transcriptionChunkIntervalSeconds = try container.decode(Double.self, forKey: .transcriptionChunkIntervalSeconds)
+        llmAnalysisIntervalSeconds = try container.decode(Double.self, forKey: .llmAnalysisIntervalSeconds)
+        llmProvider = try container.decode(LLMProvider.self, forKey: .llmProvider)
+        llmModel = try container.decode(String.self, forKey: .llmModel)
+        autocorrectEnabled = try container.decodeIfPresent(Bool.self, forKey: .autocorrectEnabled) ?? false
+        autocorrectBackend = try container.decodeIfPresent(AutocorrectBackend.self, forKey: .autocorrectBackend) ?? .llamaCpp
+        autocorrectServerURL = try container.decodeIfPresent(String.self, forKey: .autocorrectServerURL) ?? AutocorrectBackend.llamaCpp.defaultURL
+        autocorrectModel = try container.decodeIfPresent(String.self, forKey: .autocorrectModel) ?? "llama3.2:3b"
+        autocorrectTimeout = try container.decodeIfPresent(Double.self, forKey: .autocorrectTimeout) ?? 3.0
+    }
 
     var expandedOutputDirectory: URL {
         let expanded = NSString(string: outputDirectory).expandingTildeInPath
