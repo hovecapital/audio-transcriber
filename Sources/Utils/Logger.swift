@@ -9,4 +9,5 @@ enum Log {
     static let transcription = Logger(subsystem: subsystem, category: "transcription")
     static let config = Logger(subsystem: subsystem, category: "config")
     static let realtime = Logger(subsystem: subsystem, category: "realtime")
+    static let autocorrect = Logger(subsystem: subsystem, category: "autocorrect")
 }

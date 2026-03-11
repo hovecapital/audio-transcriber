@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         setupMenuBar()
         ensureOutputDirectoryExists()
+        restoreAutocorrectState()
         Log.general.info("App initialization complete")
     }
 
@@ -40,7 +41,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         popover.contentViewController = NSHostingController(
             rootView: MenuBarView(
                 appState: AppState.shared,
-                recordingManager: AudioRecordingManager.shared
+                recordingManager: AudioRecordingManager.shared,
+                autocorrectMonitor: AutocorrectMonitor.shared
             )
         )
         self.popover = popover
@@ -110,6 +112,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+        }
+    }
+
+    private func restoreAutocorrectState() {
+        let config = ConfigManager.shared.load()
+        if config.autocorrectEnabled {
+            Task { @MainActor in
+                AutocorrectMonitor.shared.start()
+            }
         }
     }
 

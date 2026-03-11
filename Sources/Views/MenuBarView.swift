@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var recordingManager: AudioRecordingManager
+    @ObservedObject var autocorrectMonitor: AutocorrectMonitor
     @State private var showSettings = false
     @State private var showQuitDialog = false
     @State private var showLiveTranscript = false
@@ -151,6 +152,17 @@ struct MenuBarView: View {
         }
         .buttonStyle(.plain)
 
+        Button(action: toggleAutocorrect) {
+            HStack {
+                Image(systemName: autocorrectMonitor.isRunning ? "checkmark.circle.fill" : "circle")
+                Text("Autocorrect")
+                Spacer()
+                Text(autocorrectMonitor.isRunning ? "On" : "Off")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
+
         if !unprocessedSessions.isEmpty {
             Menu {
                 ForEach(unprocessedSessions) { session in
@@ -242,6 +254,22 @@ struct MenuBarView: View {
 
     private func refreshUnprocessedSessions() {
         unprocessedSessions = scanner.scan()
+    }
+
+    private func toggleAutocorrect() {
+        if autocorrectMonitor.isRunning {
+            autocorrectMonitor.stop()
+            var config = ConfigManager.shared.load()
+            config.autocorrectEnabled = false
+            ConfigManager.shared.save(config)
+        } else {
+            autocorrectMonitor.start()
+            if autocorrectMonitor.isRunning {
+                var config = ConfigManager.shared.load()
+                config.autocorrectEnabled = true
+                ConfigManager.shared.save(config)
+            }
+        }
     }
 
     private func processSession(_ session: UnprocessedSession) {
