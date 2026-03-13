@@ -29,5 +29,11 @@ xcuserdata/
 build/
 dist/
 
+# App bundles
+*.app
+
+# Claude Code
+.claude/
+
 # Environment
 .env
