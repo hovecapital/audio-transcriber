@@ -33,6 +33,7 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     generalSection
+                    keyboardShortcutsSection
                     permissionsSection
                     outputSection
                     transcriptionSection
@@ -62,6 +63,38 @@ struct SettingsView: View {
                     .onChange(of: launchAtLogin) { newValue in
                         setLaunchAtLogin(newValue)
                     }
+            }
+            .padding(8)
+        }
+    }
+
+    @ViewBuilder
+    private var keyboardShortcutsSection: some View {
+        GroupBox("Keyboard Shortcuts") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Autocorrect:")
+                        .frame(width: 120, alignment: .leading)
+                    HotkeyRecorderView(hotkey: $config.autocorrectHotkey)
+                    Button("Reset") {
+                        config.autocorrectHotkey = .autocorrectDefault
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    Spacer()
+                }
+
+                HStack {
+                    Text("Dictation:")
+                        .frame(width: 120, alignment: .leading)
+                    HotkeyRecorderView(hotkey: $config.dictationHotkey)
+                    Button("Reset") {
+                        config.dictationHotkey = .dictationDefault
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    Spacer()
+                }
             }
             .padding(8)
         }
@@ -627,5 +660,10 @@ struct SettingsView: View {
         }
 
         AudioRecordingManager.shared.reloadConfig()
+
+        if let appDelegate = NSApp.delegate as? AppDelegate {
+            appDelegate.reregisterDictationHotkey()
+        }
+        AutocorrectMonitor.shared.reregisterHotkey()
     }
 }

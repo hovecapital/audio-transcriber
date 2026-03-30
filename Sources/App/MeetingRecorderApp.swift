@@ -152,15 +152,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupDictationHotkey() {
-        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.contains(.control),
-                  event.modifierFlags.contains(.command),
-                  event.keyCode == 0x02 else { return }
+        let config = ConfigManager.shared.load()
+        let combo = config.dictationHotkey
+        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
+            guard combo.matches(event) else { return }
             Task { @MainActor in
                 DictationService.shared.toggle()
             }
         }
-        Log.general.info("Dictation hotkey registered (Ctrl+Cmd+D)")
+        Log.general.info("Dictation hotkey registered (\(combo.displayString))")
+    }
+
+    func reregisterDictationHotkey() {
+        if let monitor = hotkeyMonitor {
+            NSEvent.removeMonitor(monitor)
+            hotkeyMonitor = nil
+        }
+        setupDictationHotkey()
     }
 
     private func restoreAutocorrectState() {

@@ -1,4 +1,3 @@
-import Carbon.HIToolbox
 import Cocoa
 import Combine
 
@@ -25,8 +24,7 @@ final class AutocorrectMonitor: ObservableObject {
     @Published var correctionCount = 0
     @Published var lastCorrectionTime: Date?
 
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+    private var hotkeyMonitor: Any?
     private var ollamaClient: OllamaClient?
     private var isProcessing = false
 
@@ -83,36 +81,18 @@ final class AutocorrectMonitor: ObservableObject {
             timeout: config.autocorrectTimeout
         )
 
-        let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue)
-
-        let refcon = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
-
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
-            place: .headInsertEventTap,
-            options: .listenOnly,
-            eventsOfInterest: eventMask,
-            callback: { _, _, event, refcon -> Unmanaged<CGEvent>? in
-                guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
-                let monitor = Unmanaged<AutocorrectMonitor>.fromOpaque(refcon).takeUnretainedValue()
-                monitor.handleEvent(event)
-                return Unmanaged.passUnretained(event)
-            },
-            userInfo: refcon
-        ) else {
-            Log.autocorrect.error("Failed to create event tap")
-            return
+        let combo = config.autocorrectHotkey
+        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard combo.matches(event) else { return }
+            Task { @MainActor in
+                await self?.handleSentenceEnd()
+            }
         }
-
-        eventTap = tap
-        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), runLoopSource, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
 
         isRunning = true
         correctionCount = 0
         lastCorrectionTime = nil
-        Log.autocorrect.info("Autocorrect monitor started")
+        Log.autocorrect.info("Autocorrect monitor started (hotkey: \(combo.displayString))")
 
         Task {
             await checkConnection()
@@ -120,14 +100,10 @@ final class AutocorrectMonitor: ObservableObject {
     }
 
     func stop() {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let source = runLoopSource {
-                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
-            }
+        if let monitor = hotkeyMonitor {
+            NSEvent.removeMonitor(monitor)
         }
-        eventTap = nil
-        runLoopSource = nil
+        hotkeyMonitor = nil
         ollamaClient = nil
         isRunning = false
         correctionCount = 0
@@ -135,30 +111,20 @@ final class AutocorrectMonitor: ObservableObject {
         Log.autocorrect.info("Autocorrect monitor stopped")
     }
 
-    private nonisolated func handleEvent(_ event: CGEvent) {
-        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-
-        var unicodeLength = 0
-        var unicodeChars = [UniChar](repeating: 0, count: 4)
-        event.keyboardGetUnicodeString(maxStringLength: 4, actualStringLength: &unicodeLength, unicodeString: &unicodeChars)
-
-        let isSentenceEnd: Bool
-        if unicodeLength > 0, let scalar = UnicodeScalar(unicodeChars[0]) {
-            let char = Character(scalar)
-            isSentenceEnd = char == "." || char == "!" || char == "?"
-        } else {
-            isSentenceEnd = false
+    func reregisterHotkey() {
+        guard isRunning else { return }
+        if let monitor = hotkeyMonitor {
+            NSEvent.removeMonitor(monitor)
         }
-
-        let isReturn = keyCode == Int64(kVK_Return)
-
-        guard isSentenceEnd || isReturn else { return }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+        let config = ConfigManager.shared.load()
+        let combo = config.autocorrectHotkey
+        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard combo.matches(event) else { return }
             Task { @MainActor in
-                await self.handleSentenceEnd()
+                await self?.handleSentenceEnd()
             }
         }
+        Log.autocorrect.info("Autocorrect hotkey re-registered (\(combo.displayString))")
     }
 
     private func handleSentenceEnd() async {
