@@ -83,7 +83,11 @@ final class AutocorrectMonitor: ObservableObject {
 
         let combo = config.autocorrectHotkey
         hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard combo.matches(event) else { return }
+            if !combo.matches(event) {
+                Log.autocorrect.debug("Key event ignored: keyCode=\(event.keyCode) modifiers=\(event.modifierFlags.rawValue)")
+                return
+            }
+            Log.autocorrect.info("Hotkey matched, triggering autocorrect")
             Task { @MainActor in
                 await self?.handleSentenceEnd()
             }
@@ -119,7 +123,11 @@ final class AutocorrectMonitor: ObservableObject {
         let config = ConfigManager.shared.load()
         let combo = config.autocorrectHotkey
         hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard combo.matches(event) else { return }
+            if !combo.matches(event) {
+                Log.autocorrect.debug("Key event ignored: keyCode=\(event.keyCode) modifiers=\(event.modifierFlags.rawValue)")
+                return
+            }
+            Log.autocorrect.info("Hotkey matched, triggering autocorrect")
             Task { @MainActor in
                 await self?.handleSentenceEnd()
             }
@@ -128,24 +136,40 @@ final class AutocorrectMonitor: ObservableObject {
     }
 
     private func handleSentenceEnd() async {
-        guard !isProcessing else { return }
-        guard let client = ollamaClient else { return }
+        guard !isProcessing else {
+            Log.autocorrect.warning("Already processing, skipping")
+            return
+        }
+        guard let client = ollamaClient else {
+            Log.autocorrect.error("No OllamaClient configured")
+            return
+        }
 
         isProcessing = true
         defer { isProcessing = false }
 
-        guard let focused = AccessibilityReader.readFocusedElementText() else { return }
-
-        let cursorPosition = focused.selectedRange.location
-        guard cursorPosition > 0 else { return }
-
-        guard let (sentence, sentenceRange) = extractLastSentence(from: focused.text, cursorPosition: cursorPosition) else {
+        guard let focused = AccessibilityReader.readFocusedElementText() else {
+            Log.autocorrect.warning("Could not read focused element text")
             return
         }
 
-        guard sentence.count >= 3 else { return }
+        let cursorPosition = focused.selectedRange.location
+        guard cursorPosition > 0 else {
+            Log.autocorrect.debug("Cursor at position 0")
+            return
+        }
 
-        Log.autocorrect.debug("Correcting: \(sentence)")
+        guard let (sentence, sentenceRange) = extractLastSentence(from: focused.text, cursorPosition: cursorPosition) else {
+            Log.autocorrect.debug("No sentence found before cursor")
+            return
+        }
+
+        guard sentence.count >= 3 else {
+            Log.autocorrect.debug("Sentence too short (\(sentence.count) chars)")
+            return
+        }
+
+        Log.autocorrect.info("Correcting: \(sentence)")
 
         do {
             let corrected = try await client.correct(sentence)
@@ -155,11 +179,13 @@ final class AutocorrectMonitor: ObservableObject {
 
             let cfRange = CFRange(location: sentenceRange.lowerBound, length: sentenceRange.count)
             let success = AccessibilityReader.replaceText(in: focused.element, range: cfRange, with: corrected)
-            if !success {
-                Log.autocorrect.debug("Failed to apply correction")
+            if success {
+                Log.autocorrect.info("Correction applied successfully")
+            } else {
+                Log.autocorrect.error("Failed to apply correction via accessibility")
             }
         } catch {
-            Log.autocorrect.debug("Correction failed: \(error.localizedDescription)")
+            Log.autocorrect.error("Correction failed: \(error.localizedDescription)")
             if case OllamaError.serverUnreachable = error {
                 connectionStatus.serverState = .error(error.localizedDescription)
             } else if case OllamaError.requestTimeout = error {

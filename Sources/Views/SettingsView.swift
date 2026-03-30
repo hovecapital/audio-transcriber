@@ -40,6 +40,7 @@ struct SettingsView: View {
                     realTimeSection
                     autocorrectSection
                     speakerLabelsSection
+                    LogViewerSection()
                 }
             }
             .onAppear {
@@ -52,7 +53,7 @@ struct SettingsView: View {
             buttonRow
         }
         .padding(24)
-        .frame(width: 520, height: 700)
+        .frame(width: 520, height: 900)
     }
 
     @ViewBuilder
