@@ -6,6 +6,7 @@ struct MenuBarView: View {
     @ObservedObject var recordingManager: AudioRecordingManager
     @ObservedObject var autocorrectMonitor: AutocorrectMonitor
     @ObservedObject var dictationService: DictationService
+    @ObservedObject var meetingDetection: MeetingDetectionService
     @State private var showSettings = false
     @State private var showQuitDialog = false
     @State private var showLiveTranscript = false
@@ -197,6 +198,19 @@ struct MenuBarView: View {
 
         dictationButton
 
+        autoRecordButton
+
+        if let meetingName = meetingDetection.detectedMeeting {
+            HStack {
+                Circle()
+                    .fill(.green)
+                    .frame(width: 6, height: 6)
+                Text(meetingName)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+
         if !unprocessedSessions.isEmpty {
             Menu {
                 ForEach(unprocessedSessions) { session in
@@ -255,6 +269,20 @@ struct MenuBarView: View {
         }
         .buttonStyle(.plain)
         .disabled(appState.status.isRecording || appState.dictationStatus == .transcribing)
+    }
+
+    @ViewBuilder
+    private var autoRecordButton: some View {
+        Button(action: toggleAutoRecord) {
+            HStack {
+                Image(systemName: meetingDetection.isMonitoring ? "checkmark.circle.fill" : "circle")
+                Text("Auto-Record Meetings")
+                Spacer()
+                Text(meetingDetection.isMonitoring ? "On" : "Off")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var formattedDuration: String {
@@ -319,6 +347,20 @@ struct MenuBarView: View {
 
     private func refreshUnprocessedSessions() {
         unprocessedSessions = scanner.scan()
+    }
+
+    private func toggleAutoRecord() {
+        if meetingDetection.isMonitoring {
+            meetingDetection.stopMonitoring()
+            var config = ConfigManager.shared.load()
+            config.autoRecordMeetings = false
+            ConfigManager.shared.save(config)
+        } else {
+            meetingDetection.startMonitoring()
+            var config = ConfigManager.shared.load()
+            config.autoRecordMeetings = true
+            ConfigManager.shared.save(config)
+        }
     }
 
     private func toggleAutocorrect() {

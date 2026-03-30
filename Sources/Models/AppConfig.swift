@@ -21,6 +21,10 @@ struct AppConfig: Codable {
     var autocorrectTimeout: Double
     var backupDirectory: String
     var dictationEnabled: Bool
+    var llamaServerModelPath: String
+    var llamaServerHFModel: String
+    var autoStartLLMServer: Bool
+    var autoRecordMeetings: Bool
 
     enum AutocorrectBackend: String, Codable, CaseIterable {
         case ollama
@@ -92,7 +96,11 @@ struct AppConfig: Codable {
         autocorrectModel: "llama3.2:3b",
         autocorrectTimeout: 3.0,
         backupDirectory: "~/Documents/MeetingRecorder-Backups",
-        dictationEnabled: false
+        dictationEnabled: false,
+        llamaServerModelPath: "",
+        llamaServerHFModel: "",
+        autoStartLLMServer: true,
+        autoRecordMeetings: false
     )
 
     init(
@@ -113,7 +121,11 @@ struct AppConfig: Codable {
         autocorrectModel: String,
         autocorrectTimeout: Double,
         backupDirectory: String = "~/Documents/MeetingRecorder-Backups",
-        dictationEnabled: Bool = false
+        dictationEnabled: Bool = false,
+        llamaServerModelPath: String = "",
+        llamaServerHFModel: String = "",
+        autoStartLLMServer: Bool = true,
+        autoRecordMeetings: Bool = false
     ) {
         self.outputDirectory = outputDirectory
         self.autoOpenTranscript = autoOpenTranscript
@@ -133,6 +145,10 @@ struct AppConfig: Codable {
         self.autocorrectTimeout = autocorrectTimeout
         self.backupDirectory = backupDirectory
         self.dictationEnabled = dictationEnabled
+        self.llamaServerModelPath = llamaServerModelPath
+        self.llamaServerHFModel = llamaServerHFModel
+        self.autoStartLLMServer = autoStartLLMServer
+        self.autoRecordMeetings = autoRecordMeetings
     }
 
     init(from decoder: Decoder) throws {
@@ -155,6 +171,10 @@ struct AppConfig: Codable {
         autocorrectTimeout = try container.decodeIfPresent(Double.self, forKey: .autocorrectTimeout) ?? 3.0
         backupDirectory = try container.decodeIfPresent(String.self, forKey: .backupDirectory) ?? "~/Documents/MeetingRecorder-Backups"
         dictationEnabled = try container.decodeIfPresent(Bool.self, forKey: .dictationEnabled) ?? false
+        llamaServerModelPath = try container.decodeIfPresent(String.self, forKey: .llamaServerModelPath) ?? ""
+        llamaServerHFModel = try container.decodeIfPresent(String.self, forKey: .llamaServerHFModel) ?? ""
+        autoStartLLMServer = try container.decodeIfPresent(Bool.self, forKey: .autoStartLLMServer) ?? true
+        autoRecordMeetings = try container.decodeIfPresent(Bool.self, forKey: .autoRecordMeetings) ?? false
     }
 
     var expandedOutputDirectory: URL {

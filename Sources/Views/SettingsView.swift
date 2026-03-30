@@ -12,13 +12,16 @@ struct SettingsView: View {
     @State private var micPermissionStatus: AVAuthorizationStatus = .notDetermined
     @State private var screenRecordingGranted = false
     @State private var accessibilityGranted = false
+    @State private var useHuggingFace: Bool
     @ObservedObject private var autocorrectMonitor = AutocorrectMonitor.shared
     @Environment(\.dismiss) private var dismiss
 
     init() {
-        _config = State(initialValue: ConfigManager.shared.load())
+        let loadedConfig = ConfigManager.shared.load()
+        _config = State(initialValue: loadedConfig)
         _launchAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled)
         _apiKey = State(initialValue: KeychainHelper.getLLMAPIKey() ?? "")
+        _useHuggingFace = State(initialValue: !loadedConfig.llamaServerHFModel.isEmpty)
     }
 
     var body: some View {
@@ -317,6 +320,47 @@ struct SettingsView: View {
                         .textFieldStyle(.roundedBorder)
                 }
 
+                if config.autocorrectBackend == .llamaCpp {
+                    HStack {
+                        Text("Model Source:")
+                            .frame(width: 120, alignment: .leading)
+                        Picker("", selection: $useHuggingFace) {
+                            Text("Local File").tag(false)
+                            Text("HuggingFace").tag(true)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .onChange(of: useHuggingFace) { isHF in
+                            if isHF {
+                                config.llamaServerModelPath = ""
+                            } else {
+                                config.llamaServerHFModel = ""
+                            }
+                        }
+                    }
+
+                    if useHuggingFace {
+                        HStack {
+                            Text("HF Model:")
+                                .frame(width: 120, alignment: .leading)
+                            TextField("bartowski/Llama-3.2-3B-Instruct-GGUF", text: $config.llamaServerHFModel)
+                                .textFieldStyle(.roundedBorder)
+                        }
+                    } else {
+                        HStack {
+                            Text("Model File:")
+                                .frame(width: 120, alignment: .leading)
+                            TextField("/path/to/model.gguf", text: $config.llamaServerModelPath)
+                                .textFieldStyle(.roundedBorder)
+                            Button("Browse...") {
+                                selectModelFile()
+                            }
+                        }
+                    }
+
+                    Toggle("Auto-start server", isOn: $config.autoStartLLMServer)
+                }
+
                 Divider()
 
                 connectionStatusRow
@@ -519,6 +563,19 @@ struct SettingsView: View {
                 dismiss()
             }
             .buttonStyle(.borderedProminent)
+        }
+    }
+
+    private func selectModelFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [UTType(filenameExtension: "gguf") ?? .data]
+        panel.prompt = "Select"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            config.llamaServerModelPath = url.path
         }
     }
 

@@ -11,4 +11,6 @@ enum Log {
     static let realtime = Logger(subsystem: subsystem, category: "realtime")
     static let autocorrect = Logger(subsystem: subsystem, category: "autocorrect")
     static let dictation = Logger(subsystem: subsystem, category: "dictation")
+    static let meeting = Logger(subsystem: subsystem, category: "meeting")
+    static let llmServer = Logger(subsystem: subsystem, category: "llmServer")
 }

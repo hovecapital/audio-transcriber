@@ -24,7 +24,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ensureOutputDirectoryExists()
         restoreAutocorrectState()
         setupDictationHotkey()
+        autoStartLLMServerIfNeeded()
+        autoStartMeetingDetectionIfNeeded()
         Log.general.info("App initialization complete")
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        Task { @MainActor in
+            LLMServerManager.shared.stopServer()
+            MeetingDetectionService.shared.stopMonitoring()
+        }
     }
 
     private func setupMenuBar() {
@@ -45,7 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 appState: AppState.shared,
                 recordingManager: AudioRecordingManager.shared,
                 autocorrectMonitor: AutocorrectMonitor.shared,
-                dictationService: DictationService.shared
+                dictationService: DictationService.shared,
+                meetingDetection: MeetingDetectionService.shared
             )
         )
         self.popover = popover
@@ -143,13 +153,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupDictationHotkey() {
         hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.modifierFlags.contains(.option),
+            guard event.modifierFlags.contains(.control),
+                  event.modifierFlags.contains(.command),
                   event.keyCode == 0x02 else { return }
             Task { @MainActor in
                 DictationService.shared.toggle()
             }
         }
-        Log.general.info("Dictation hotkey registered (Option+D)")
+        Log.general.info("Dictation hotkey registered (Ctrl+Cmd+D)")
     }
 
     private func restoreAutocorrectState() {
@@ -157,6 +168,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if config.autocorrectEnabled {
             Task { @MainActor in
                 AutocorrectMonitor.shared.start()
+            }
+        }
+    }
+
+    private func autoStartLLMServerIfNeeded() {
+        let config = ConfigManager.shared.load()
+        if config.autocorrectBackend == .llamaCpp
+            && config.autoStartLLMServer
+            && (!config.llamaServerModelPath.isEmpty || !config.llamaServerHFModel.isEmpty) {
+            Task { @MainActor in
+                LLMServerManager.shared.startServer()
+            }
+        }
+    }
+
+    private func autoStartMeetingDetectionIfNeeded() {
+        let config = ConfigManager.shared.load()
+        if config.autoRecordMeetings {
+            Task { @MainActor in
+                MeetingDetectionService.shared.startMonitoring()
             }
         }
     }
