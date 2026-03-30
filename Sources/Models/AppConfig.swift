@@ -19,6 +19,8 @@ struct AppConfig: Codable {
     var autocorrectServerURL: String
     var autocorrectModel: String
     var autocorrectTimeout: Double
+    var backupDirectory: String
+    var dictationEnabled: Bool
 
     enum AutocorrectBackend: String, Codable, CaseIterable {
         case ollama
@@ -78,7 +80,7 @@ struct AppConfig: Codable {
         whisperModelSize: .base,
         person1Label: "Person 1",
         person2Label: "Person 2",
-        deleteAudioAfterTranscription: true,
+        deleteAudioAfterTranscription: false,
         enableRealTimeTranscription: false,
         transcriptionChunkIntervalSeconds: 15.0,
         llmAnalysisIntervalSeconds: 120.0,
@@ -88,7 +90,9 @@ struct AppConfig: Codable {
         autocorrectBackend: .llamaCpp,
         autocorrectServerURL: "http://localhost:8080",
         autocorrectModel: "llama3.2:3b",
-        autocorrectTimeout: 3.0
+        autocorrectTimeout: 3.0,
+        backupDirectory: "~/Documents/MeetingRecorder-Backups",
+        dictationEnabled: false
     )
 
     init(
@@ -107,7 +111,9 @@ struct AppConfig: Codable {
         autocorrectBackend: AutocorrectBackend,
         autocorrectServerURL: String,
         autocorrectModel: String,
-        autocorrectTimeout: Double
+        autocorrectTimeout: Double,
+        backupDirectory: String = "~/Documents/MeetingRecorder-Backups",
+        dictationEnabled: Bool = false
     ) {
         self.outputDirectory = outputDirectory
         self.autoOpenTranscript = autoOpenTranscript
@@ -125,6 +131,8 @@ struct AppConfig: Codable {
         self.autocorrectServerURL = autocorrectServerURL
         self.autocorrectModel = autocorrectModel
         self.autocorrectTimeout = autocorrectTimeout
+        self.backupDirectory = backupDirectory
+        self.dictationEnabled = dictationEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -145,10 +153,17 @@ struct AppConfig: Codable {
         autocorrectServerURL = try container.decodeIfPresent(String.self, forKey: .autocorrectServerURL) ?? AutocorrectBackend.llamaCpp.defaultURL
         autocorrectModel = try container.decodeIfPresent(String.self, forKey: .autocorrectModel) ?? "llama3.2:3b"
         autocorrectTimeout = try container.decodeIfPresent(Double.self, forKey: .autocorrectTimeout) ?? 3.0
+        backupDirectory = try container.decodeIfPresent(String.self, forKey: .backupDirectory) ?? "~/Documents/MeetingRecorder-Backups"
+        dictationEnabled = try container.decodeIfPresent(Bool.self, forKey: .dictationEnabled) ?? false
     }
 
     var expandedOutputDirectory: URL {
         let expanded = NSString(string: outputDirectory).expandingTildeInPath
+        return URL(fileURLWithPath: expanded)
+    }
+
+    var expandedBackupDirectory: URL {
+        let expanded = NSString(string: backupDirectory).expandingTildeInPath
         return URL(fileURLWithPath: expanded)
     }
 }

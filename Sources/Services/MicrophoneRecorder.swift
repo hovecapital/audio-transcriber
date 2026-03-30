@@ -7,7 +7,11 @@ final class MicrophoneRecorder {
     private let outputURL: URL
     private var isRecording = false
 
+    private(set) var buffersWritten: Int = 0
+    private(set) var framesWritten: Int64 = 0
+
     weak var bufferDelegate: AudioBufferDelegate?
+    weak var healthMonitor: RecordingHealthMonitor?
 
     init(outputURL: URL) {
         self.outputURL = outputURL
@@ -38,6 +42,8 @@ final class MicrophoneRecorder {
 
     func start() throws {
         Log.audio.info("Starting microphone recording with AVAudioEngine...")
+        buffersWritten = 0
+        framesWritten = 0
 
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
@@ -125,6 +131,9 @@ final class MicrophoneRecorder {
 
         do {
             try audioFile?.write(from: outputBuffer)
+            buffersWritten += 1
+            framesWritten += Int64(outputBuffer.frameLength)
+            healthMonitor?.recordBufferReceived(source: .microphone, frameCount: Int(outputBuffer.frameLength))
         } catch {
             Log.audio.error("Error writing audio buffer: \(error.localizedDescription)")
         }

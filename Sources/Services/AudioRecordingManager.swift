@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 
 @MainActor
@@ -9,6 +10,7 @@ final class AudioRecordingManager: ObservableObject {
     @Published private(set) var currentSession: RecordingSession?
     @Published private(set) var recordingDuration: TimeInterval = 0
     @Published private(set) var realTimeCoordinator: RealTimeRecordingCoordinator?
+    @Published private(set) var healthMonitor: RecordingHealthMonitor?
 
     private var micRecorder: MicrophoneRecorder?
     private var systemRecorder: SystemAudioRecorder?
@@ -35,6 +37,10 @@ final class AudioRecordingManager: ObservableObject {
 
         config = ConfigManager.shared.load()
 
+        if let diskError = checkDiskSpace() {
+            throw diskError
+        }
+
         Log.audio.info("Checking permissions...")
         if let permissionError = await checkPermissions() {
             Log.audio.error("Permission error: \(permissionError.localizedDescription)")
@@ -60,6 +66,12 @@ final class AudioRecordingManager: ObservableObject {
 
         micRecorder = MicrophoneRecorder(outputURL: micURL)
         systemRecorder = SystemAudioRecorder(outputURL: systemURL)
+
+        let monitor = RecordingHealthMonitor()
+        healthMonitor = monitor
+        micRecorder?.healthMonitor = monitor
+        systemRecorder?.healthMonitor = monitor
+        monitor.start()
 
         if config.enableRealTimeTranscription {
             let coordinator = RealTimeRecordingCoordinator(config: config)
@@ -93,6 +105,7 @@ final class AudioRecordingManager: ObservableObject {
         }
 
         stopDurationTimer()
+        healthMonitor?.stop()
 
         Log.audio.info("Stopping microphone recorder...")
         micRecorder?.stop()
@@ -105,8 +118,27 @@ final class AudioRecordingManager: ObservableObject {
         isRecording = false
         Log.audio.info("Recording stopped. Duration: \(session.formattedDuration)")
 
+        let backupService = AudioBackupService(config: config)
+        let backupResult = backupService.backupSessionFiles(
+            micFile: session.micFilePath,
+            systemFile: session.systemFilePath,
+            sessionStart: session.startTime
+        )
+        if !backupResult.success {
+            Log.audio.warning("Backup completed with errors: \(backupResult.errors.joined(separator: ", "))")
+        }
+
+        let verificationIssues = verifyRecordingFiles(session: session)
+        if !verificationIssues.isEmpty {
+            let message = verificationIssues.joined(separator: "; ")
+            Log.audio.error("Recording verification failed: \(message)")
+            showWarningNotification(message: message)
+            await AppState.shared.updateStatus(.warning(message))
+        }
+
         let realTimeResult = await realTimeCoordinator?.stopSession()
         realTimeCoordinator = nil
+        healthMonitor = nil
 
         await processRecording(session: session, realTimeResult: realTimeResult)
     }
@@ -119,6 +151,8 @@ final class AudioRecordingManager: ObservableObject {
         }
 
         stopDurationTimer()
+        healthMonitor?.stop()
+        healthMonitor = nil
 
         Log.audio.info("Stopping recorders for save...")
         micRecorder?.stop()
@@ -161,6 +195,8 @@ final class AudioRecordingManager: ObservableObject {
         }
 
         stopDurationTimer()
+        healthMonitor?.stop()
+        healthMonitor = nil
 
         Log.audio.info("Stopping recorders for discard...")
         micRecorder?.stop()
@@ -285,10 +321,15 @@ final class AudioRecordingManager: ObservableObject {
             Log.audio.info("Saving transcript to: \(transcriptURL.path)")
 
             if currentConfig.deleteAudioAfterTranscription {
-                Log.audio.debug("Deleting audio files...")
-                try? FileManager.default.removeItem(at: session.micFilePath)
-                try? FileManager.default.removeItem(at: session.systemFilePath)
-                try? FileManager.default.removeItem(at: session.micFilePath.deletingLastPathComponent())
+                let issues = verifyRecordingFiles(session: session)
+                if issues.isEmpty {
+                    Log.audio.debug("Deleting audio files...")
+                    try? FileManager.default.removeItem(at: session.micFilePath)
+                    try? FileManager.default.removeItem(at: session.systemFilePath)
+                    try? FileManager.default.removeItem(at: session.micFilePath.deletingLastPathComponent())
+                } else {
+                    Log.audio.warning("Skipping audio deletion due to verification issues: \(issues.joined(separator: ", "))")
+                }
             }
 
             await AppState.shared.updateStatus(.completed)
@@ -383,11 +424,83 @@ final class AudioRecordingManager: ObservableObject {
         NSUserNotificationCenter.default.deliver(notification)
     }
 
+    private func showWarningNotification(message: String) {
+        let notification = NSUserNotification()
+        notification.title = "Recording Warning"
+        notification.informativeText = message
+        notification.soundName = NSUserNotificationDefaultSoundName
+        NSUserNotificationCenter.default.deliver(notification)
+    }
+
+    private func checkDiskSpace() -> RecordingManagerError? {
+        let outputDir = config.expandedOutputDirectory
+        do {
+            let attrs = try FileManager.default.attributesOfFileSystem(forPath: outputDir.path)
+            guard let freeSpace = attrs[.systemFreeSize] as? Int64 else {
+                return nil
+            }
+
+            let freeMB = freeSpace / (1024 * 1024)
+            Log.audio.debug("Available disk space: \(freeMB)MB")
+
+            if freeMB < 100 {
+                Log.audio.error("Insufficient disk space: \(freeMB)MB free")
+                return .insufficientDiskSpace(freeMB: freeMB)
+            }
+
+            if freeMB < 500 {
+                Log.audio.warning("Low disk space warning: \(freeMB)MB free")
+                showWarningNotification(message: "Low disk space: \(freeMB)MB free. Recording may fail if space runs out.")
+            }
+        } catch {
+            Log.audio.warning("Could not check disk space: \(error.localizedDescription)")
+        }
+        return nil
+    }
+
+    private func verifyRecordingFiles(session: RecordingSession) -> [String] {
+        var issues: [String] = []
+        let minValidSize: UInt64 = 4096
+
+        for (label, url) in [("Microphone", session.micFilePath), ("System audio", session.systemFilePath)] {
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                issues.append("\(label) file missing")
+                continue
+            }
+
+            let size = fileSize(at: url)
+            if size <= minValidSize {
+                issues.append("\(label) recording appears empty (\(size) bytes)")
+                continue
+            }
+
+            do {
+                let audioFile = try AVAudioFile(forReading: url)
+                if audioFile.length == 0 {
+                    issues.append("\(label) recording has zero audio frames")
+                }
+            } catch {
+                issues.append("\(label) file is not a valid audio file: \(error.localizedDescription)")
+            }
+        }
+
+        return issues
+    }
+
+    private func fileSize(at url: URL) -> UInt64 {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let size = attrs[.size] as? UInt64 else {
+            return 0
+        }
+        return size
+    }
+
     enum RecordingManagerError: LocalizedError {
         case microphonePermissionDenied
         case screenRecordingPermissionDenied
         case bothPermissionsDenied
         case alreadyRecording
+        case insufficientDiskSpace(freeMB: Int64)
 
         var errorDescription: String? {
             switch self {
@@ -399,6 +512,8 @@ final class AudioRecordingManager: ObservableObject {
                 return "Both Microphone and Screen Recording permissions denied. Open System Settings > Privacy & Security and enable Meeting Recorder for both."
             case .alreadyRecording:
                 return "Recording is already in progress"
+            case .insufficientDiskSpace(let freeMB):
+                return "Insufficient disk space: only \(freeMB)MB free. Need at least 100MB to start recording."
             }
         }
     }

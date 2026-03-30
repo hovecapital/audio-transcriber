@@ -90,4 +90,60 @@ enum AccessibilityReader {
 
         return true
     }
+
+    static func insertTextAtCursor(_ text: String) -> Bool {
+        if let focused = readFocusedElementText() {
+            let range = focused.selectedRange
+            var mutableRange = range
+            guard let axRange = AXValueCreate(.cfRange, &mutableRange) else {
+                return pasteViaClipboard(text)
+            }
+
+            guard AXUIElementSetAttributeValue(focused.element, kAXSelectedTextRangeAttribute as CFString, axRange) == .success else {
+                return pasteViaClipboard(text)
+            }
+
+            guard AXUIElementSetAttributeValue(focused.element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success else {
+                return pasteViaClipboard(text)
+            }
+
+            Log.dictation.debug("Inserted text via AX API")
+            return true
+        }
+
+        return pasteViaClipboard(text)
+    }
+
+    private static func pasteViaClipboard(_ text: String) -> Bool {
+        let pasteboard = NSPasteboard.general
+        let previousContents = pasteboard.string(forType: .string)
+
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false) else {
+            if let prev = previousContents {
+                pasteboard.clearContents()
+                pasteboard.setString(prev, forType: .string)
+            }
+            return false
+        }
+
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if let prev = previousContents {
+                pasteboard.clearContents()
+                pasteboard.setString(prev, forType: .string)
+            }
+        }
+
+        Log.dictation.debug("Inserted text via clipboard paste fallback")
+        return true
+    }
 }

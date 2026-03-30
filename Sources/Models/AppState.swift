@@ -1,12 +1,19 @@
 import Foundation
 import SwiftUI
 
+enum DictationStatus: Equatable {
+    case idle
+    case listening
+    case transcribing
+}
+
 enum RecordingStatus: Equatable {
     case idle
     case recording
     case processing(progress: Double, message: String)
     case completed
     case error(String)
+    case warning(String)
 
     var isRecording: Bool {
         if case .recording = self { return true }
@@ -15,6 +22,11 @@ enum RecordingStatus: Equatable {
 
     var isProcessing: Bool {
         if case .processing = self { return true }
+        return false
+    }
+
+    var isWarning: Bool {
+        if case .warning = self { return true }
         return false
     }
 }
@@ -70,6 +82,7 @@ final class AppState: ObservableObject {
     static let shared = AppState()
 
     @Published var status: RecordingStatus = .idle
+    @Published var dictationStatus: DictationStatus = .idle
     @Published var currentSession: RecordingSession?
     @Published var showSettings = false
 

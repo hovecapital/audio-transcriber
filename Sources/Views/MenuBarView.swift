@@ -5,6 +5,7 @@ struct MenuBarView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var recordingManager: AudioRecordingManager
     @ObservedObject var autocorrectMonitor: AutocorrectMonitor
+    @ObservedObject var dictationService: DictationService
     @State private var showSettings = false
     @State private var showQuitDialog = false
     @State private var showLiveTranscript = false
@@ -58,12 +59,34 @@ struct MenuBarView: View {
             }
 
         case .recording:
-            HStack {
-                Circle()
-                    .fill(.red)
-                    .frame(width: 8, height: 8)
-                Text("Recording: \(formattedDuration)")
-                    .foregroundColor(.primary)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 8, height: 8)
+                    Text("Recording: \(formattedDuration)")
+                        .foregroundColor(.primary)
+                }
+                if let monitor = recordingManager.healthMonitor {
+                    HStack(spacing: 8) {
+                        HStack(spacing: 2) {
+                            Circle()
+                                .fill(monitor.micHealthy ? .green : .orange)
+                                .frame(width: 6, height: 6)
+                            Text("Mic")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        HStack(spacing: 2) {
+                            Circle()
+                                .fill(monitor.systemHealthy ? .green : .orange)
+                                .frame(width: 6, height: 6)
+                            Text("System")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
             }
 
         case .processing(let progress, let message):
@@ -92,6 +115,15 @@ struct MenuBarView: View {
             HStack {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundColor(.red)
+                Text(message)
+                    .font(.caption)
+                    .lineLimit(2)
+            }
+
+        case .warning(let message):
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(.orange)
                 Text(message)
                     .font(.caption)
                     .lineLimit(2)
@@ -163,6 +195,8 @@ struct MenuBarView: View {
         }
         .buttonStyle(.plain)
 
+        dictationButton
+
         if !unprocessedSessions.isEmpty {
             Menu {
                 ForEach(unprocessedSessions) { session in
@@ -190,6 +224,37 @@ struct MenuBarView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var dictationButton: some View {
+        Button(action: { dictationService.toggle() }) {
+            HStack {
+                switch appState.dictationStatus {
+                case .idle:
+                    Image(systemName: "mic")
+                    Text("Dictation")
+                    Spacer()
+                    Text("Off")
+                        .foregroundColor(.secondary)
+                case .listening:
+                    Image(systemName: "mic.fill")
+                        .foregroundColor(.blue)
+                    Text("Dictation")
+                    Spacer()
+                    Circle()
+                        .fill(.blue)
+                        .frame(width: 8, height: 8)
+                case .transcribing:
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .frame(width: 16, height: 16)
+                    Text("Transcribing...")
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(appState.status.isRecording || appState.dictationStatus == .transcribing)
     }
 
     private var formattedDuration: String {

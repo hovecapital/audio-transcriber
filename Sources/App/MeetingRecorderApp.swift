@@ -14,6 +14,7 @@ struct MeetingRecorderApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
+    private var hotkeyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Log.general.info("MeetingRecorder app launched")
@@ -22,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuBar()
         ensureOutputDirectoryExists()
         restoreAutocorrectState()
+        setupDictationHotkey()
         Log.general.info("App initialization complete")
     }
 
@@ -42,7 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             rootView: MenuBarView(
                 appState: AppState.shared,
                 recordingManager: AudioRecordingManager.shared,
-                autocorrectMonitor: AutocorrectMonitor.shared
+                autocorrectMonitor: AutocorrectMonitor.shared,
+                dictationService: DictationService.shared
             )
         )
         self.popover = popover
@@ -57,6 +60,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 updateMenuBarIcon()
             }
         }
+        Task { @MainActor in
+            for await _ in AppState.shared.$dictationStatus.values {
+                updateMenuBarIcon()
+            }
+        }
     }
 
     @MainActor
@@ -66,30 +74,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let symbolName: String
         let color: NSColor
 
-        switch AppState.shared.status {
-        case .idle:
-            symbolName = "waveform"
-            color = .labelColor
-        case .recording:
-            symbolName = "record.circle.fill"
-            color = .systemRed
-        case .processing:
-            symbolName = "gear"
-            color = .systemOrange
-        case .completed:
-            symbolName = "checkmark.circle.fill"
-            color = .systemGreen
-        case .error:
-            symbolName = "exclamationmark.circle.fill"
-            color = .systemRed
+        if AppState.shared.dictationStatus != .idle {
+            switch AppState.shared.dictationStatus {
+            case .listening:
+                symbolName = "mic.fill"
+                color = .systemBlue
+            case .transcribing:
+                symbolName = "ellipsis.circle.fill"
+                color = .systemBlue
+            case .idle:
+                symbolName = "waveform"
+                color = .labelColor
+            }
+        } else {
+            switch AppState.shared.status {
+            case .idle:
+                symbolName = "waveform"
+                color = .labelColor
+            case .recording:
+                symbolName = "record.circle.fill"
+                color = .systemRed
+            case .processing:
+                symbolName = "gear"
+                color = .systemOrange
+            case .completed:
+                symbolName = "checkmark.circle.fill"
+                color = .systemGreen
+            case .error:
+                symbolName = "exclamationmark.circle.fill"
+                color = .systemRed
+            case .warning:
+                symbolName = "exclamationmark.triangle.fill"
+                color = .systemOrange
+            }
         }
 
+        let isDefaultState = AppState.shared.status == .idle && AppState.shared.dictationStatus == .idle
         let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         var image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
         image = image?.withSymbolConfiguration(config)
-        image?.isTemplate = AppState.shared.status == .idle
+        image?.isTemplate = isDefaultState
 
-        if !AppState.shared.status.isRecording && AppState.shared.status != .idle {
+        if !isDefaultState {
             if let tintedImage = image?.copy() as? NSImage {
                 tintedImage.lockFocus()
                 color.set()
@@ -113,6 +139,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
+    }
+
+    private func setupDictationHotkey() {
+        hotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.modifierFlags.contains(.option),
+                  event.keyCode == 0x02 else { return }
+            Task { @MainActor in
+                DictationService.shared.toggle()
+            }
+        }
+        Log.general.info("Dictation hotkey registered (Option+D)")
     }
 
     private func restoreAutocorrectState() {
