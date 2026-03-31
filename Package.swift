@@ -7,14 +7,26 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "MeetingRecorder", targets: ["MeetingRecorder"])
+        .executable(name: "MeetingRecorder", targets: ["MeetingRecorder"]),
+        .library(name: "MeetingRecorderCore", targets: ["MeetingRecorderCore"])
     ],
     dependencies: [],
     targets: [
+        .target(
+            name: "MeetingRecorderCore",
+            dependencies: [],
+            path: "Sources",
+            exclude: ["AppEntry"]
+        ),
         .executableTarget(
             name: "MeetingRecorder",
-            dependencies: [],
-            path: "Sources"
+            dependencies: ["MeetingRecorderCore"],
+            path: "Sources/AppEntry"
+        ),
+        .testTarget(
+            name: "MeetingRecorderTests",
+            dependencies: ["MeetingRecorderCore"],
+            path: "Tests"
         )
     ]
 )

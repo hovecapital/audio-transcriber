@@ -91,32 +91,32 @@ enum AccessibilityReader {
         return true
     }
 
-    static func insertTextAtCursor(_ text: String) -> Bool {
+    static func insertTextAtCursor(_ text: String, preserveClipboard: Bool = true) -> Bool {
         if let focused = readFocusedElementText() {
             let range = focused.selectedRange
             var mutableRange = range
             guard let axRange = AXValueCreate(.cfRange, &mutableRange) else {
-                return pasteViaClipboard(text)
+                return pasteViaClipboard(text, preserveClipboard: preserveClipboard)
             }
 
             guard AXUIElementSetAttributeValue(focused.element, kAXSelectedTextRangeAttribute as CFString, axRange) == .success else {
-                return pasteViaClipboard(text)
+                return pasteViaClipboard(text, preserveClipboard: preserveClipboard)
             }
 
             guard AXUIElementSetAttributeValue(focused.element, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success else {
-                return pasteViaClipboard(text)
+                return pasteViaClipboard(text, preserveClipboard: preserveClipboard)
             }
 
             Log.dictation.debug("Inserted text via AX API")
             return true
         }
 
-        return pasteViaClipboard(text)
+        return pasteViaClipboard(text, preserveClipboard: preserveClipboard)
     }
 
-    private static func pasteViaClipboard(_ text: String) -> Bool {
+    private static func pasteViaClipboard(_ text: String, preserveClipboard: Bool = true) -> Bool {
         let pasteboard = NSPasteboard.general
-        let previousContents = pasteboard.string(forType: .string)
+        let previousContents = preserveClipboard ? pasteboard.string(forType: .string) : nil
 
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
@@ -136,10 +136,12 @@ enum AccessibilityReader {
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            if let prev = previousContents {
-                pasteboard.clearContents()
-                pasteboard.setString(prev, forType: .string)
+        if preserveClipboard {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                if let prev = previousContents {
+                    pasteboard.clearContents()
+                    pasteboard.setString(prev, forType: .string)
+                }
             }
         }
 

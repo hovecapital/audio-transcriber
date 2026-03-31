@@ -3,8 +3,8 @@ import AppKit
 import Foundation
 
 @MainActor
-final class DictationService: ObservableObject {
-    static let shared = DictationService()
+public final class DictationService: ObservableObject {
+    public static let shared = DictationService()
 
     @Published private(set) var state: DictationStatus = .idle
 
@@ -18,7 +18,7 @@ final class DictationService: ObservableObject {
         modelsDirectory = appSupport.appendingPathComponent("MeetingRecorder/models")
     }
 
-    func toggle() {
+    public func toggle() {
         switch state {
         case .idle:
             startListening()
@@ -161,11 +161,15 @@ final class DictationService: ObservableObject {
                     return
                 }
 
-                let inserted = AccessibilityReader.insertTextAtCursor(trimmed)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(trimmed, forType: .string)
+                Log.dictation.info("Dictation text copied to clipboard")
+
+                let inserted = AccessibilityReader.insertTextAtCursor(trimmed, preserveClipboard: false)
                 if inserted {
                     Log.dictation.info("Dictation text inserted: \(trimmed.prefix(50))...")
                 } else {
-                    Log.dictation.error("Failed to insert dictation text")
+                    Log.dictation.info("Text available on clipboard for Cmd+V")
                 }
             } catch {
                 Log.dictation.error("Dictation transcription failed: \(error.localizedDescription)")
@@ -181,6 +185,12 @@ final class DictationService: ObservableObject {
 
         try writeBuffersToWAV(buffers, url: tempWAV)
         defer { try? FileManager.default.removeItem(at: tempWAV) }
+
+        let wavValidation = WAVFileValidator.validate(url: tempWAV)
+        Log.dictation.info("WAV validation: size=\(wavValidation.fileSize), hasAudio=\(wavValidation.hasAudioData)")
+        guard wavValidation.isValid else {
+            throw DictationError.transcriptionFailed
+        }
 
         let whisperPath = findWhisperExecutable()
         guard let whisperPath else {
@@ -212,13 +222,18 @@ final class DictationService: ObservableObject {
 
         return try await withCheckedThrowingContinuation { continuation in
             process.terminationHandler = { proc in
+                let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+                let outputString = String(data: outputData, encoding: .utf8) ?? ""
+                Log.dictation.info("Whisper exited with code: \(proc.terminationStatus)")
+                Log.dictation.debug("Whisper output: \(outputString.prefix(2000))")
+
                 guard proc.terminationStatus == 0 else {
                     continuation.resume(throwing: DictationError.transcriptionFailed)
                     return
                 }
 
                 do {
-                    let text = try self.parseWhisperJSON(url: outputPath)
+                    let text = try WhisperOutputParser.parsePlainText(jsonURL: outputPath)
                     continuation.resume(returning: text)
                 } catch {
                     continuation.resume(throwing: error)
@@ -267,25 +282,6 @@ final class DictationService: ObservableObject {
         return nil
     }
 
-    nonisolated private func parseWhisperJSON(url: URL) throws -> String {
-        let data = try Data(contentsOf: url)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-
-        if let transcription = json?["transcription"] as? [[String: Any]] {
-            return transcription
-                .compactMap { $0["text"] as? String }
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-        }
-
-        if let text = json?["text"] as? String {
-            return text
-        }
-
-        throw DictationError.parseError
-    }
-
     private func resetState() {
         state = .idle
         AppState.shared.dictationStatus = .idle
@@ -296,7 +292,6 @@ final class DictationService: ObservableObject {
         case whisperNotFound
         case modelNotFound
         case transcriptionFailed
-        case parseError
 
         var errorDescription: String? {
             switch self {
@@ -308,8 +303,6 @@ final class DictationService: ObservableObject {
                 return "Whisper model not found"
             case .transcriptionFailed:
                 return "Dictation transcription failed"
-            case .parseError:
-                return "Failed to parse transcription output"
             }
         }
     }

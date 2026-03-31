@@ -97,7 +97,17 @@ final class MicrophoneRecorder {
         audioEngine = nil
         audioFile = nil
         isRecording = false
-        Log.audio.info("Microphone recording stopped")
+
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size] as? UInt64) ?? 0
+        let estimatedDuration = framesWritten > 0 ? Double(framesWritten) / 16000.0 : 0
+        Log.audio.info("Microphone recording stopped - buffers: \(buffersWritten), frames: \(framesWritten), fileSize: \(fileSize) bytes, estDuration: \(String(format: "%.1f", estimatedDuration))s")
+
+        if buffersWritten == 0 {
+            Log.audio.warning("WARNING: Zero buffers written to microphone file")
+        }
+        if fileSize <= 44 {
+            Log.audio.warning("WARNING: Microphone file is header-only (\(fileSize) bytes)")
+        }
     }
 
     private func processBuffer(_ buffer: AVAudioPCMBuffer, converter: AVAudioConverter, targetFormat: AVAudioFormat) {
@@ -133,6 +143,9 @@ final class MicrophoneRecorder {
             try audioFile?.write(from: outputBuffer)
             buffersWritten += 1
             framesWritten += Int64(outputBuffer.frameLength)
+            if buffersWritten % 100 == 0 {
+                Log.audio.debug("Mic progress: \(buffersWritten) buffers, \(framesWritten) frames")
+            }
             healthMonitor?.recordBufferReceived(source: .microphone, frameCount: Int(outputBuffer.frameLength))
         } catch {
             Log.audio.error("Error writing audio buffer: \(error.localizedDescription)")

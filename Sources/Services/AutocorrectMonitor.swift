@@ -16,8 +16,8 @@ struct OllamaConnectionStatus: Equatable {
 }
 
 @MainActor
-final class AutocorrectMonitor: ObservableObject {
-    static let shared = AutocorrectMonitor()
+public final class AutocorrectMonitor: ObservableObject {
+    public static let shared = AutocorrectMonitor()
 
     @Published var isRunning = false
     @Published var connectionStatus = OllamaConnectionStatus()
@@ -65,7 +65,7 @@ final class AutocorrectMonitor: ObservableObject {
         connectionStatus.lastChecked = Date()
     }
 
-    func start() {
+    public func start() {
         guard !isRunning else { return }
 
         guard AccessibilityReader.isTrusted(promptIfNeeded: true) else {

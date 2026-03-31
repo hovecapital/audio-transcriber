@@ -1,13 +1,13 @@
 import Foundation
 import SwiftUI
 
-enum DictationStatus: Equatable {
+public enum DictationStatus: Equatable {
     case idle
     case listening
     case transcribing
 }
 
-enum RecordingStatus: Equatable {
+public enum RecordingStatus: Equatable {
     case idle
     case recording
     case processing(progress: Double, message: String)
@@ -15,17 +15,17 @@ enum RecordingStatus: Equatable {
     case error(String)
     case warning(String)
 
-    var isRecording: Bool {
+    public var isRecording: Bool {
         if case .recording = self { return true }
         return false
     }
 
-    var isProcessing: Bool {
+    public var isProcessing: Bool {
         if case .processing = self { return true }
         return false
     }
 
-    var isWarning: Bool {
+    public var isWarning: Bool {
         if case .warning = self { return true }
         return false
     }
@@ -78,17 +78,17 @@ struct TranscriptSegment: Identifiable {
 }
 
 @MainActor
-final class AppState: ObservableObject {
-    static let shared = AppState()
+public final class AppState: ObservableObject {
+    public static let shared = AppState()
 
-    @Published var status: RecordingStatus = .idle
-    @Published var dictationStatus: DictationStatus = .idle
+    @Published public var status: RecordingStatus = .idle
+    @Published public var dictationStatus: DictationStatus = .idle
     @Published var currentSession: RecordingSession?
     @Published var showSettings = false
 
     private init() {}
 
-    func updateStatus(_ newStatus: RecordingStatus) {
+    public func updateStatus(_ newStatus: RecordingStatus) {
         status = newStatus
     }
 }

@@ -1,8 +1,8 @@
 import Foundation
 
 @MainActor
-final class LLMServerManager: ObservableObject {
-    static let shared = LLMServerManager()
+public final class LLMServerManager: ObservableObject {
+    public static let shared = LLMServerManager()
 
     @Published private(set) var isRunning = false
 
@@ -12,7 +12,7 @@ final class LLMServerManager: ObservableObject {
 
     private init() {}
 
-    func startServer() {
+    public func startServer() {
         guard !isRunning else { return }
 
         let config = ConfigManager.shared.load()
@@ -72,7 +72,7 @@ final class LLMServerManager: ObservableObject {
         }
     }
 
-    func stopServer() {
+    public func stopServer() {
         guard let proc = process, proc.isRunning else {
             isRunning = false
             process = nil

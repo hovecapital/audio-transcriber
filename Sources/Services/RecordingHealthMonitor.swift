@@ -113,7 +113,9 @@ final class RecordingHealthMonitor: ObservableObject {
 
         let micCount = bufferCounts[.microphone, default: 0]
         let sysCount = bufferCounts[.systemAudio, default: 0]
-        Log.audio.debug("Health check - Mic buffers: \(micCount), System buffers: \(sysCount)")
+        let micFrames = frameCounts[.microphone, default: 0]
+        let sysFrames = frameCounts[.systemAudio, default: 0]
+        Log.audio.debug("Health check - Mic: \(micCount) buffers / \(micFrames) frames, System: \(sysCount) buffers / \(sysFrames) frames")
     }
 
     private func fireAlert(message: String) {

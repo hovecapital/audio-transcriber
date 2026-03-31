@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-struct MenuBarView: View {
+public struct MenuBarView: View {
     @ObservedObject var appState: AppState
     @ObservedObject var recordingManager: AudioRecordingManager
     @ObservedObject var autocorrectMonitor: AutocorrectMonitor
@@ -14,7 +14,21 @@ struct MenuBarView: View {
 
     private let scanner = UnprocessedSessionScanner()
 
-    var body: some View {
+    public init(
+        appState: AppState,
+        recordingManager: AudioRecordingManager,
+        autocorrectMonitor: AutocorrectMonitor,
+        dictationService: DictationService,
+        meetingDetection: MeetingDetectionService
+    ) {
+        self.appState = appState
+        self.recordingManager = recordingManager
+        self.autocorrectMonitor = autocorrectMonitor
+        self.dictationService = dictationService
+        self.meetingDetection = meetingDetection
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             statusSection
 

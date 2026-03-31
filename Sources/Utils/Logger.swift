@@ -1,7 +1,7 @@
 import Foundation
 import os.log
 
-struct AppLogger {
+public struct AppLogger {
     private let osLogger: Logger
     private let category: String
 
@@ -10,22 +10,22 @@ struct AppLogger {
         self.category = category
     }
 
-    func debug(_ message: String) {
+    public func debug(_ message: String) {
         osLogger.debug("\(message)")
         appendToStore(level: .debug, message: message)
     }
 
-    func info(_ message: String) {
+    public func info(_ message: String) {
         osLogger.info("\(message)")
         appendToStore(level: .info, message: message)
     }
 
-    func warning(_ message: String) {
+    public func warning(_ message: String) {
         osLogger.warning("\(message)")
         appendToStore(level: .warning, message: message)
     }
 
-    func error(_ message: String) {
+    public func error(_ message: String) {
         osLogger.error("\(message)")
         appendToStore(level: .error, message: message)
     }
@@ -43,10 +43,10 @@ struct AppLogger {
     }
 }
 
-enum Log {
+public enum Log {
     private static let subsystem = "com.meetingrecorder.app"
 
-    static let general = AppLogger(subsystem: subsystem, category: "general")
+    public static let general = AppLogger(subsystem: subsystem, category: "general")
     static let audio = AppLogger(subsystem: subsystem, category: "audio")
     static let transcription = AppLogger(subsystem: subsystem, category: "transcription")
     static let config = AppLogger(subsystem: subsystem, category: "config")

@@ -1,3 +1,4 @@
+import MeetingRecorderCore
 import SwiftUI
 
 @main
@@ -26,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupDictationHotkey()
         autoStartLLMServerIfNeeded()
         autoStartMeetingDetectionIfNeeded()
+        observeDictationHotkeyChanges()
         Log.general.info("App initialization complete")
     }
 
@@ -102,8 +104,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 symbolName = "waveform"
                 color = .labelColor
             case .recording:
-                symbolName = "record.circle.fill"
-                color = .systemRed
+                symbolName = "waveform"
+                color = .systemOrange
             case .processing:
                 symbolName = "gear"
                 color = .systemOrange
@@ -163,7 +165,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Log.general.info("Dictation hotkey registered (\(combo.displayString))")
     }
 
-    func reregisterDictationHotkey() {
+    private func observeDictationHotkeyChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .dictationHotkeyChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.reregisterDictationHotkey()
+        }
+    }
+
+    private func reregisterDictationHotkey() {
         if let monitor = hotkeyMonitor {
             NSEvent.removeMonitor(monitor)
             hotkeyMonitor = nil

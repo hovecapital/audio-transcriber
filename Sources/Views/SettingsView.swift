@@ -4,7 +4,7 @@ import ServiceManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct SettingsView: View {
+public struct SettingsView: View {
     @State private var config: AppConfig
     @State private var launchAtLogin: Bool
     @State private var apiKey: String
@@ -16,7 +16,7 @@ struct SettingsView: View {
     @ObservedObject private var autocorrectMonitor = AutocorrectMonitor.shared
     @Environment(\.dismiss) private var dismiss
 
-    init() {
+    public init() {
         let loadedConfig = ConfigManager.shared.load()
         _config = State(initialValue: loadedConfig)
         _launchAtLogin = State(initialValue: SMAppService.mainApp.status == .enabled)
@@ -24,7 +24,7 @@ struct SettingsView: View {
         _useHuggingFace = State(initialValue: !loadedConfig.llamaServerHFModel.isEmpty)
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Settings")
                 .font(.title2)
@@ -662,9 +662,7 @@ struct SettingsView: View {
 
         AudioRecordingManager.shared.reloadConfig()
 
-        if let appDelegate = NSApp.delegate as? AppDelegate {
-            appDelegate.reregisterDictationHotkey()
-        }
+        NotificationCenter.default.post(name: .dictationHotkeyChanged, object: nil)
         AutocorrectMonitor.shared.reregisterHotkey()
     }
 }

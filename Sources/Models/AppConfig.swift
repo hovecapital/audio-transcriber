@@ -1,19 +1,24 @@
 import AppKit
 import Foundation
 
-struct HotkeyCombo: Codable, Equatable {
-    var keyCode: UInt16
-    var modifiers: UInt
+public struct HotkeyCombo: Codable, Equatable {
+    public var keyCode: UInt16
+    public var modifiers: UInt
 
-    static let dictationDefault = HotkeyCombo(keyCode: 0x02, modifiers: NSEvent.ModifierFlags([.control, .command]).rawValue)
-    static let autocorrectDefault = HotkeyCombo(keyCode: 0x00, modifiers: NSEvent.ModifierFlags([.control, .command]).rawValue)
+    public static let dictationDefault = HotkeyCombo(keyCode: 0x02, modifiers: NSEvent.ModifierFlags([.control, .command]).rawValue)
+    public static let autocorrectDefault = HotkeyCombo(keyCode: 0x00, modifiers: NSEvent.ModifierFlags([.control, .command]).rawValue)
 
-    func matches(_ event: NSEvent) -> Bool {
+    public init(keyCode: UInt16, modifiers: UInt) {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+    }
+
+    public func matches(_ event: NSEvent) -> Bool {
         let mask: NSEvent.ModifierFlags = [.control, .command, .option, .shift]
         return event.keyCode == keyCode && event.modifierFlags.intersection(mask) == NSEvent.ModifierFlags(rawValue: modifiers).intersection(mask)
     }
 
-    var displayString: String {
+    public var displayString: String {
         let flags = NSEvent.ModifierFlags(rawValue: modifiers)
         var symbols = ""
         if flags.contains(.control) { symbols += "^" }
@@ -23,7 +28,7 @@ struct HotkeyCombo: Codable, Equatable {
         return symbols + Self.keyName(for: keyCode)
     }
 
-    static func keyName(for keyCode: UInt16) -> String {
+    public static func keyName(for keyCode: UInt16) -> String {
         let names: [UInt16: String] = [
             0x00: "A", 0x01: "S", 0x02: "D", 0x03: "F", 0x04: "H",
             0x05: "G", 0x06: "Z", 0x07: "X", 0x08: "C", 0x09: "V",
@@ -45,39 +50,39 @@ struct HotkeyCombo: Codable, Equatable {
     }
 }
 
-struct AppConfig: Codable {
-    var outputDirectory: String
-    var autoOpenTranscript: Bool
-    var whisperModelSize: WhisperModelSize
-    var person1Label: String
-    var person2Label: String
-    var deleteAudioAfterTranscription: Bool
+public struct AppConfig: Codable {
+    public var outputDirectory: String
+    public var autoOpenTranscript: Bool
+    public var whisperModelSize: WhisperModelSize
+    public var person1Label: String
+    public var person2Label: String
+    public var deleteAudioAfterTranscription: Bool
 
-    var enableRealTimeTranscription: Bool
-    var transcriptionChunkIntervalSeconds: Double
-    var llmAnalysisIntervalSeconds: Double
-    var llmProvider: LLMProvider
-    var llmModel: String
+    public var enableRealTimeTranscription: Bool
+    public var transcriptionChunkIntervalSeconds: Double
+    public var llmAnalysisIntervalSeconds: Double
+    public var llmProvider: LLMProvider
+    public var llmModel: String
 
-    var autocorrectEnabled: Bool
-    var autocorrectBackend: AutocorrectBackend
-    var autocorrectServerURL: String
-    var autocorrectModel: String
-    var autocorrectTimeout: Double
-    var backupDirectory: String
-    var dictationEnabled: Bool
-    var llamaServerModelPath: String
-    var llamaServerHFModel: String
-    var autoStartLLMServer: Bool
-    var autoRecordMeetings: Bool
-    var autocorrectHotkey: HotkeyCombo
-    var dictationHotkey: HotkeyCombo
+    public var autocorrectEnabled: Bool
+    public var autocorrectBackend: AutocorrectBackend
+    public var autocorrectServerURL: String
+    public var autocorrectModel: String
+    public var autocorrectTimeout: Double
+    public var backupDirectory: String
+    public var dictationEnabled: Bool
+    public var llamaServerModelPath: String
+    public var llamaServerHFModel: String
+    public var autoStartLLMServer: Bool
+    public var autoRecordMeetings: Bool
+    public var autocorrectHotkey: HotkeyCombo
+    public var dictationHotkey: HotkeyCombo
 
-    enum AutocorrectBackend: String, Codable, CaseIterable {
+    public enum AutocorrectBackend: String, Codable, CaseIterable {
         case ollama
         case llamaCpp
 
-        var displayName: String {
+        public var displayName: String {
             switch self {
             case .ollama: return "Ollama"
             case .llamaCpp: return "llama.cpp"
@@ -92,7 +97,7 @@ struct AppConfig: Codable {
         }
     }
 
-    enum WhisperModelSize: String, Codable, CaseIterable {
+    public enum WhisperModelSize: String, Codable, CaseIterable {
         case tiny = "tiny"
         case base = "base"
         case small = "small"
@@ -106,7 +111,7 @@ struct AppConfig: Codable {
         }
     }
 
-    enum LLMProvider: String, Codable, CaseIterable {
+    public enum LLMProvider: String, Codable, CaseIterable {
         case anthropic
         case openai
 
@@ -125,7 +130,7 @@ struct AppConfig: Codable {
         }
     }
 
-    static let `default` = AppConfig(
+    public static let `default` = AppConfig(
         outputDirectory: "~/Documents/Transcripts",
         autoOpenTranscript: true,
         whisperModelSize: .base,
@@ -152,7 +157,7 @@ struct AppConfig: Codable {
         dictationHotkey: .dictationDefault
     )
 
-    init(
+    public init(
         outputDirectory: String,
         autoOpenTranscript: Bool,
         whisperModelSize: WhisperModelSize,
@@ -204,7 +209,7 @@ struct AppConfig: Codable {
         self.dictationHotkey = dictationHotkey
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         outputDirectory = try container.decode(String.self, forKey: .outputDirectory)
         autoOpenTranscript = try container.decode(Bool.self, forKey: .autoOpenTranscript)
@@ -232,7 +237,7 @@ struct AppConfig: Codable {
         dictationHotkey = try container.decodeIfPresent(HotkeyCombo.self, forKey: .dictationHotkey) ?? .dictationDefault
     }
 
-    var expandedOutputDirectory: URL {
+    public var expandedOutputDirectory: URL {
         let expanded = NSString(string: outputDirectory).expandingTildeInPath
         return URL(fileURLWithPath: expanded)
     }
@@ -243,8 +248,8 @@ struct AppConfig: Codable {
     }
 }
 
-final class ConfigManager {
-    static let shared = ConfigManager()
+public final class ConfigManager {
+    public static let shared = ConfigManager()
 
     private let configFileName = "config.json"
     private var configURL: URL {
@@ -265,7 +270,7 @@ final class ConfigManager {
         try? FileManager.default.createDirectory(at: appFolder, withIntermediateDirectories: true)
     }
 
-    func load() -> AppConfig {
+    public func load() -> AppConfig {
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             Log.config.info("No config file found, using defaults")
             return .default
@@ -282,7 +287,7 @@ final class ConfigManager {
         }
     }
 
-    func save(_ config: AppConfig) {
+    public func save(_ config: AppConfig) {
         do {
             let data = try JSONEncoder().encode(config)
             try data.write(to: configURL)
@@ -291,4 +296,8 @@ final class ConfigManager {
             Log.config.error("Failed to save config: \(error.localizedDescription)")
         }
     }
+}
+
+public extension Notification.Name {
+    static let dictationHotkeyChanged = Notification.Name("com.meetingrecorder.dictationHotkeyChanged")
 }

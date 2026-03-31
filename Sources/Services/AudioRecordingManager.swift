@@ -3,8 +3,8 @@ import AVFoundation
 import Foundation
 
 @MainActor
-final class AudioRecordingManager: ObservableObject {
-    static let shared = AudioRecordingManager()
+public final class AudioRecordingManager: ObservableObject {
+    public static let shared = AudioRecordingManager()
 
     @Published private(set) var isRecording = false
     @Published private(set) var currentSession: RecordingSession?
@@ -258,33 +258,50 @@ final class AudioRecordingManager: ObservableObject {
             } else {
                 let transcriptionService = TranscriptionService(modelSize: currentConfig.whisperModelSize)
 
-                Log.audio.info("Transcribing microphone audio...")
-                await AppState.shared.updateStatus(.processing(progress: 0.1, message: "Transcribing microphone audio..."))
+                var micSegments: [TranscriptSegment] = []
+                var systemSegments: [TranscriptSegment] = []
 
-                let micSegments = try await transcriptionService.transcribe(
-                    audioURL: session.micFilePath,
-                    speaker: .person1
-                ) { progress, message in
-                    Task { @MainActor in
-                        let overallProgress = 0.1 + (progress * 0.35)
-                        AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
+                let micValidation = WAVFileValidator.validate(url: session.micFilePath)
+                Log.audio.info("Mic WAV validation: size=\(micValidation.fileSize), hasAudio=\(micValidation.hasAudioData), valid=\(micValidation.isValid)")
+
+                if micValidation.isValid {
+                    Log.audio.info("Transcribing microphone audio...")
+                    await AppState.shared.updateStatus(.processing(progress: 0.1, message: "Transcribing microphone audio..."))
+
+                    micSegments = try await transcriptionService.transcribe(
+                        audioURL: session.micFilePath,
+                        speaker: .person1
+                    ) { progress, message in
+                        Task { @MainActor in
+                            let overallProgress = 0.1 + (progress * 0.35)
+                            AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
+                        }
                     }
+                    Log.audio.info("Microphone transcription complete: \(micSegments.count) segments")
+                } else {
+                    Log.audio.error("Skipping mic transcription: \(micValidation.errorMessage ?? "invalid file")")
                 }
-                Log.audio.info("Microphone transcription complete: \(micSegments.count) segments")
 
-                Log.audio.info("Transcribing system audio...")
-                await AppState.shared.updateStatus(.processing(progress: 0.5, message: "Transcribing system audio..."))
+                let sysValidation = WAVFileValidator.validate(url: session.systemFilePath)
+                Log.audio.info("System WAV validation: size=\(sysValidation.fileSize), hasAudio=\(sysValidation.hasAudioData), valid=\(sysValidation.isValid)")
 
-                let systemSegments = try await transcriptionService.transcribe(
-                    audioURL: session.systemFilePath,
-                    speaker: .person2
-                ) { progress, message in
-                    Task { @MainActor in
-                        let overallProgress = 0.5 + (progress * 0.35)
-                        AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
+                if sysValidation.isValid {
+                    Log.audio.info("Transcribing system audio...")
+                    await AppState.shared.updateStatus(.processing(progress: 0.5, message: "Transcribing system audio..."))
+
+                    systemSegments = try await transcriptionService.transcribe(
+                        audioURL: session.systemFilePath,
+                        speaker: .person2
+                    ) { progress, message in
+                        Task { @MainActor in
+                            let overallProgress = 0.5 + (progress * 0.35)
+                            AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
+                        }
                     }
+                    Log.audio.info("System audio transcription complete: \(systemSegments.count) segments")
+                } else {
+                    Log.audio.error("Skipping system transcription: \(sysValidation.errorMessage ?? "invalid file")")
                 }
-                Log.audio.info("System audio transcription complete: \(systemSegments.count) segments")
 
                 allSegments = (micSegments + systemSegments).sorted { $0.start < $1.start }
             }

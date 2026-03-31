@@ -3,8 +3,8 @@ import ApplicationServices
 import Foundation
 
 @MainActor
-final class MeetingDetectionService: ObservableObject {
-    static let shared = MeetingDetectionService()
+public final class MeetingDetectionService: ObservableObject {
+    public static let shared = MeetingDetectionService()
 
     @Published private(set) var isMonitoring = false
     @Published private(set) var detectedMeeting: String?
@@ -25,7 +25,7 @@ final class MeetingDetectionService: ObservableObject {
 
     private init() {}
 
-    func startMonitoring() {
+    public func startMonitoring() {
         guard !isMonitoring else { return }
         isMonitoring = true
         pollTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
@@ -36,7 +36,7 @@ final class MeetingDetectionService: ObservableObject {
         Log.meeting.info("Meeting detection started")
     }
 
-    func stopMonitoring() {
+    public func stopMonitoring() {
         pollTimer?.invalidate()
         pollTimer = nil
         isMonitoring = false

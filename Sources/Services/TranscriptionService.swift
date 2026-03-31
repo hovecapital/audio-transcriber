@@ -43,6 +43,13 @@ final class TranscriptionService {
 
         progressHandler(0.3, "Running transcription...")
 
+        let wavValidation = WAVFileValidator.validate(url: audioURL)
+        Log.transcription.info("WAV validation for \(audioURL.lastPathComponent): size=\(wavValidation.fileSize), hasAudio=\(wavValidation.hasAudioData)")
+        guard wavValidation.isValid else {
+            Log.transcription.error("Invalid WAV file: \(wavValidation.errorMessage ?? "unknown")")
+            throw TranscriptionError.transcriptionFailed(wavValidation.errorMessage ?? "Invalid audio file")
+        }
+
         let outputPath = audioURL.deletingPathExtension().appendingPathExtension("json")
         Log.transcription.debug("Output path: \(outputPath.path)")
 
@@ -64,21 +71,23 @@ final class TranscriptionService {
 
         Log.transcription.info("Launching whisper process...")
         try process.run()
+
+        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
         let exitCode = process.terminationStatus
+        let outputString = String(data: outputData, encoding: .utf8) ?? ""
         Log.transcription.info("Whisper process exited with code: \(exitCode)")
+        Log.transcription.debug("Whisper output: \(outputString.prefix(2000))")
 
         progressHandler(0.8, "Processing results...")
 
         guard exitCode == 0 else {
-            let errorData = pipe.fileHandleForReading.readDataToEndOfFile()
-            let errorString = String(data: errorData, encoding: .utf8) ?? "Unknown error"
-            Log.transcription.error("Whisper failed: \(errorString)")
-            throw TranscriptionError.transcriptionFailed(errorString)
+            Log.transcription.error("Whisper failed: \(outputString)")
+            throw TranscriptionError.transcriptionFailed(outputString)
         }
 
-        let segments = try parseWhisperOutput(jsonURL: outputPath, speaker: speaker)
+        let segments = try WhisperOutputParser.parseSegments(jsonURL: outputPath, speaker: speaker)
         Log.transcription.info("Parsed \(segments.count) transcript segments")
 
         try? FileManager.default.removeItem(at: outputPath)
@@ -160,44 +169,10 @@ final class TranscriptionService {
         Log.transcription.info("Model saved to: \(destination.path)")
     }
 
-    private func parseWhisperOutput(jsonURL: URL, speaker: TranscriptSegment.Speaker) throws -> [TranscriptSegment] {
-        Log.transcription.debug("Parsing whisper output from: \(jsonURL.path)")
-
-        let data = try Data(contentsOf: jsonURL)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-
-        guard let transcription = json?["transcription"] as? [[String: Any]] else {
-            if let text = json?["text"] as? String {
-                Log.transcription.debug("Found single text block instead of segments")
-                return [TranscriptSegment(start: 0, end: 0, text: text.trimmingCharacters(in: .whitespacesAndNewlines), speaker: speaker)]
-            }
-            Log.transcription.error("Failed to parse whisper JSON output")
-            throw TranscriptionError.parseError
-        }
-
-        return transcription.compactMap { segment -> TranscriptSegment? in
-            guard let text = segment["text"] as? String else { return nil }
-
-            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedText.isEmpty else { return nil }
-
-            let start = (segment["offsets"] as? [String: Any])?["from"] as? Int ?? 0
-            let end = (segment["offsets"] as? [String: Any])?["to"] as? Int ?? 0
-
-            return TranscriptSegment(
-                start: TimeInterval(start) / 1000.0,
-                end: TimeInterval(end) / 1000.0,
-                text: trimmedText,
-                speaker: speaker
-            )
-        }
-    }
-
     enum TranscriptionError: LocalizedError {
         case whisperNotFound
         case modelDownloadFailed
         case transcriptionFailed(String)
-        case parseError
 
         var errorDescription: String? {
             switch self {
@@ -207,8 +182,6 @@ final class TranscriptionService {
                 return "Failed to download Whisper model"
             case .transcriptionFailed(let message):
                 return "Transcription failed: \(message)"
-            case .parseError:
-                return "Failed to parse transcription output"
             }
         }
     }
