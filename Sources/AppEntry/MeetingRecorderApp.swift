@@ -1,4 +1,6 @@
+#if canImport(MeetingRecorderCore)
 import MeetingRecorderCore
+#endif
 import SwiftUI
 
 @main
