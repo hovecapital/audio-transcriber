@@ -1,6 +1,6 @@
 # Meeting Recorder
 
-A macOS menu bar app that records meeting audio, transcribes it with Whisper, and optionally analyzes transcripts with LLMs for summaries, action items, and engineering specs.
+A macOS menu bar app that records meeting audio, transcribes it with Whisper, and optionally analyzes transcripts with LLMs for summaries, action items, and engineering specs. Also features voice dictation, automatic meeting detection, and system-wide autocorrect.
 
 ## Features
 
@@ -9,10 +9,17 @@ A macOS menu bar app that records meeting audio, transcribes it with Whisper, an
 - **Real-time transcription** - live transcript segments during recording
 - **LLM analysis** - extracts summaries, action items, clarification questions, and engineering specs (Anthropic Claude / OpenAI GPT)
 - **Autocorrect** - system-wide spell/grammar correction using local LLMs (Ollama or llama.cpp)
+- **Voice dictation** - push-to-talk speech-to-text that inserts transcribed text at cursor position
+- **Automatic meeting detection** - monitors browsers for Google Meet, Teams, and Slack Huddles; auto-starts/stops recording
+- **Audio backup** - automatic backup of recordings to a configurable directory before processing
+- **Recording health monitoring** - real-time monitoring of audio buffer flow with warnings if audio stops
+- **Disk space monitoring** - warns below 500MB, blocks recording below 100MB
+- **Customizable hotkeys** - configure shortcuts for autocorrect and dictation via a hotkey recorder UI
 - Timestamped markdown transcripts with speaker labels
 - Menu bar interface with no dock icon
 - Graceful shutdown with recovery options for interrupted recordings
 - Launch at login support
+- Built-in log viewer for debugging
 
 ## Requirements
 
@@ -20,7 +27,7 @@ A macOS menu bar app that records meeting audio, transcribes it with Whisper, an
 - whisper.cpp CLI installed (models download automatically)
 - Microphone permission
 - Screen Recording permission (for system audio capture)
-- Accessibility permission (for autocorrect only)
+- Accessibility permission (for autocorrect and voice dictation)
 
 ## Installation
 
@@ -83,6 +90,20 @@ If you quit while recording:
 
 Saved recordings can be processed later via the menu bar.
 
+### Voice Dictation
+
+Press the dictation hotkey (default: Ctrl+Cmd+D) to start listening. Speak, then release to transcribe and insert text at the current cursor position via the Accessibility API. The menu bar icon shows the current state: idle, listening, or transcribing.
+
+If direct text insertion fails (e.g. the target app doesn't support Accessibility), the transcribed text is copied to the clipboard as a fallback.
+
+### Automatic Meeting Detection
+
+When enabled, the app monitors browser windows for supported meeting platforms and automatically starts/stops recording when a meeting is detected. Toggle auto-detection from the menu bar.
+
+Supported browsers: Chrome, Safari, Edge, Firefox, Brave, Arc.
+
+Supported platforms: Google Meet, Microsoft Teams, Slack Huddles.
+
 ## Configuration
 
 Access settings via the menu bar icon > Settings.
@@ -111,15 +132,42 @@ Access settings via the menu bar icon > Settings.
 
 API keys are stored in macOS Keychain and can be entered in Settings.
 
+### Voice Dictation
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Enable Dictation | Enable push-to-talk voice dictation | No |
+| Dictation Hotkey | Keyboard shortcut to activate dictation | Ctrl+Cmd+D |
+
+Requires Accessibility permission (Settings > Privacy & Security > Accessibility).
+
+### Meeting Detection
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Enable Meeting Detection | Auto-detect and record meetings | No |
+
+Supported browsers: Chrome, Safari, Edge, Firefox, Brave, Arc. Supported platforms: Google Meet, Microsoft Teams, Slack Huddles.
+
+### Audio Backup
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| Backup Directory | Directory for automatic audio backups | -- |
+
+When configured, recordings are automatically backed up to this directory before processing.
+
 ### Autocorrect
 
 | Setting | Description | Default |
 |---------|-------------|---------|
 | Enable Autocorrect | System-wide spell/grammar correction | No |
+| Autocorrect Hotkey | Keyboard shortcut for autocorrect | Configurable |
 | Backend | Ollama or llama.cpp | Ollama |
 | Server URL | Local LLM server address | http://localhost:11434 |
 | Model | Model name | -- |
 | Timeout | Request timeout | 3s |
+| Auto-start Server | Automatically start llama.cpp server | No |
 
 **Ollama setup:**
 
@@ -133,6 +181,8 @@ ollama pull llama3.2:3b
 ```bash
 llama-server -m /path/to/model.gguf --port 8080
 ```
+
+When using the llama.cpp backend with "Auto-start Server" enabled, the app manages the llama.cpp server process automatically -- no need to start it manually.
 
 Requires Accessibility permission (Settings > Privacy & Security > Accessibility).
 
@@ -191,7 +241,7 @@ On first run, macOS will prompt for:
 
 1. **Microphone Access** - Record your voice
 2. **Screen Recording** - Capture system audio via ScreenCaptureKit
-3. **Accessibility** - Required only for autocorrect feature
+3. **Accessibility** - Required for autocorrect and voice dictation
 
 Grant these in System Settings > Privacy & Security.
 
@@ -224,6 +274,19 @@ Grant these in System Settings > Privacy & Security.
 - Verify Accessibility permission is granted
 - Check local LLM server is running ("Test Connection" in Settings)
 - Ensure a model is available on the server
+
+### Dictation not inserting text
+
+- Verify Accessibility permission is granted
+- Some apps don't support Accessibility text insertion -- the transcribed text will be copied to your clipboard as a fallback
+- Check that dictation is enabled in Settings
+
+### Meeting detection not working
+
+- Ensure meeting detection is enabled in Settings
+- Verify a supported browser is in use (Chrome, Safari, Edge, Firefox, Brave, Arc)
+- The meeting must be on a supported platform (Google Meet, Microsoft Teams, Slack Huddles)
+- Try restarting the app after granting Screen Recording permission
 
 ## License
 
