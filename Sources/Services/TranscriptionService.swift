@@ -65,26 +65,35 @@ final class TranscriptionService {
 
         Log.transcription.debug("Whisper arguments: \(process.arguments?.joined(separator: " ") ?? "")")
 
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
 
         Log.transcription.info("Launching whisper process...")
+        let launchTime = Date()
         try process.run()
 
-        let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
+        let elapsed = Date().timeIntervalSince(launchTime)
         let exitCode = process.terminationStatus
-        let outputString = String(data: outputData, encoding: .utf8) ?? ""
-        Log.transcription.info("Whisper process exited with code: \(exitCode)")
-        Log.transcription.debug("Whisper output: \(outputString.prefix(2000))")
+        let stdoutString = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderrString = String(data: stderrData, encoding: .utf8) ?? ""
+        Log.transcription.info("Whisper process exited with code: \(exitCode) in \(String(format: "%.1f", elapsed))s")
+        Log.transcription.debug("Whisper stdout: \(stdoutString.prefix(2000))")
+        if !stderrString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Log.transcription.warning("Whisper stderr: \(stderrString.prefix(2000))")
+        }
 
         progressHandler(0.8, "Processing results...")
 
         guard exitCode == 0 else {
-            Log.transcription.error("Whisper failed: \(outputString)")
-            throw TranscriptionError.transcriptionFailed(outputString)
+            let combinedOutput = [stdoutString, stderrString].filter { !$0.isEmpty }.joined(separator: "\n")
+            Log.transcription.error("Whisper failed: \(combinedOutput)")
+            throw TranscriptionError.transcriptionFailed(combinedOutput)
         }
 
         let segments = try WhisperOutputParser.parseSegments(jsonURL: outputPath, speaker: speaker)

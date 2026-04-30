@@ -221,8 +221,6 @@ public struct SettingsView: View {
                 }
 
                 Toggle("Open transcript after processing", isOn: $config.autoOpenTranscript)
-
-                Toggle("Delete audio files after transcription", isOn: $config.deleteAudioAfterTranscription)
             }
             .padding(8)
         }

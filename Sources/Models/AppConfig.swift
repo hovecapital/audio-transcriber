@@ -56,8 +56,6 @@ public struct AppConfig: Codable {
     public var whisperModelSize: WhisperModelSize
     public var person1Label: String
     public var person2Label: String
-    public var deleteAudioAfterTranscription: Bool
-
     public var enableRealTimeTranscription: Bool
     public var transcriptionChunkIntervalSeconds: Double
     public var llmAnalysisIntervalSeconds: Double
@@ -136,7 +134,6 @@ public struct AppConfig: Codable {
         whisperModelSize: .base,
         person1Label: "Person 1",
         person2Label: "Person 2",
-        deleteAudioAfterTranscription: false,
         enableRealTimeTranscription: false,
         transcriptionChunkIntervalSeconds: 15.0,
         llmAnalysisIntervalSeconds: 120.0,
@@ -163,7 +160,6 @@ public struct AppConfig: Codable {
         whisperModelSize: WhisperModelSize,
         person1Label: String,
         person2Label: String,
-        deleteAudioAfterTranscription: Bool,
         enableRealTimeTranscription: Bool,
         transcriptionChunkIntervalSeconds: Double,
         llmAnalysisIntervalSeconds: Double,
@@ -188,7 +184,6 @@ public struct AppConfig: Codable {
         self.whisperModelSize = whisperModelSize
         self.person1Label = person1Label
         self.person2Label = person2Label
-        self.deleteAudioAfterTranscription = deleteAudioAfterTranscription
         self.enableRealTimeTranscription = enableRealTimeTranscription
         self.transcriptionChunkIntervalSeconds = transcriptionChunkIntervalSeconds
         self.llmAnalysisIntervalSeconds = llmAnalysisIntervalSeconds
@@ -216,7 +211,6 @@ public struct AppConfig: Codable {
         whisperModelSize = try container.decode(WhisperModelSize.self, forKey: .whisperModelSize)
         person1Label = try container.decode(String.self, forKey: .person1Label)
         person2Label = try container.decode(String.self, forKey: .person2Label)
-        deleteAudioAfterTranscription = try container.decode(Bool.self, forKey: .deleteAudioAfterTranscription)
         enableRealTimeTranscription = try container.decode(Bool.self, forKey: .enableRealTimeTranscription)
         transcriptionChunkIntervalSeconds = try container.decode(Double.self, forKey: .transcriptionChunkIntervalSeconds)
         llmAnalysisIntervalSeconds = try container.decode(Double.self, forKey: .llmAnalysisIntervalSeconds)

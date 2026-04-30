@@ -241,7 +241,12 @@ public final class AudioRecordingManager: ObservableObject {
         session: RecordingSession,
         realTimeResult: (segments: [TranscriptSegment], analysis: MeetingAnalysis)?
     ) async {
+        let sessionDir = session.micFilePath.deletingLastPathComponent()
         Log.audio.info("Processing recording for session: \(session.id)")
+        Log.audio.info("Session directory: \(sessionDir.path)")
+        Log.audio.info("Mic file exists: \(FileManager.default.fileExists(atPath: session.micFilePath.path)), size: \(formattedFileSize(at: session.micFilePath))")
+        Log.audio.info("System file exists: \(FileManager.default.fileExists(atPath: session.systemFilePath.path)), size: \(formattedFileSize(at: session.systemFilePath))")
+
         let currentConfig = ConfigManager.shared.load()
 
         await AppState.shared.updateStatus(.processing(progress: 0, message: "Starting transcription..."))
@@ -262,12 +267,13 @@ public final class AudioRecordingManager: ObservableObject {
                 var systemSegments: [TranscriptSegment] = []
 
                 let micValidation = WAVFileValidator.validate(url: session.micFilePath)
-                Log.audio.info("Mic WAV validation: size=\(micValidation.fileSize), hasAudio=\(micValidation.hasAudioData), valid=\(micValidation.isValid)")
+                Log.audio.info("Mic WAV validation: size=\(micValidation.fileSize) (\(formattedFileSize(at: session.micFilePath))), hasAudio=\(micValidation.hasAudioData), valid=\(micValidation.isValid)")
 
                 if micValidation.isValid {
                     Log.audio.info("Transcribing microphone audio...")
                     await AppState.shared.updateStatus(.processing(progress: 0.1, message: "Transcribing microphone audio..."))
 
+                    let micStart = Date()
                     micSegments = try await transcriptionService.transcribe(
                         audioURL: session.micFilePath,
                         speaker: .person1
@@ -277,18 +283,20 @@ public final class AudioRecordingManager: ObservableObject {
                             AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
                         }
                     }
-                    Log.audio.info("Microphone transcription complete: \(micSegments.count) segments")
+                    let micDuration = Date().timeIntervalSince(micStart)
+                    Log.audio.info("Microphone transcription complete: \(micSegments.count) segments in \(String(format: "%.1f", micDuration))s")
                 } else {
                     Log.audio.error("Skipping mic transcription: \(micValidation.errorMessage ?? "invalid file")")
                 }
 
                 let sysValidation = WAVFileValidator.validate(url: session.systemFilePath)
-                Log.audio.info("System WAV validation: size=\(sysValidation.fileSize), hasAudio=\(sysValidation.hasAudioData), valid=\(sysValidation.isValid)")
+                Log.audio.info("System WAV validation: size=\(sysValidation.fileSize) (\(formattedFileSize(at: session.systemFilePath))), hasAudio=\(sysValidation.hasAudioData), valid=\(sysValidation.isValid)")
 
                 if sysValidation.isValid {
                     Log.audio.info("Transcribing system audio...")
                     await AppState.shared.updateStatus(.processing(progress: 0.5, message: "Transcribing system audio..."))
 
+                    let sysStart = Date()
                     systemSegments = try await transcriptionService.transcribe(
                         audioURL: session.systemFilePath,
                         speaker: .person2
@@ -298,12 +306,30 @@ public final class AudioRecordingManager: ObservableObject {
                             AppState.shared.updateStatus(.processing(progress: overallProgress, message: message))
                         }
                     }
-                    Log.audio.info("System audio transcription complete: \(systemSegments.count) segments")
+                    let sysDuration = Date().timeIntervalSince(sysStart)
+                    Log.audio.info("System audio transcription complete: \(systemSegments.count) segments in \(String(format: "%.1f", sysDuration))s")
                 } else {
                     Log.audio.error("Skipping system transcription: \(sysValidation.errorMessage ?? "invalid file")")
                 }
 
                 allSegments = (micSegments + systemSegments).sorted { $0.start < $1.start }
+
+                let outcome = classifyTranscriptionOutcome(micSegments: micSegments, systemSegments: systemSegments)
+                switch outcome {
+                case .empty:
+                    Log.audio.warning("Transcription produced zero segments from both sources")
+                    saveFailedSessionMetadata(session: session, reason: "Transcription produced no segments")
+                    await AppState.shared.updateStatus(.warning("Transcription produced no content. Audio files preserved for retry."))
+                    showWarningNotification(message: "Transcription produced no content. Audio files preserved for retry.")
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)
+                    await AppState.shared.updateStatus(.idle)
+                    currentSession = nil
+                    return
+                case .partial(let source):
+                    Log.audio.warning("Only \(source) produced segments, other source was empty")
+                case .full:
+                    Log.audio.info("Both sources produced segments: mic=\(micSegments.count), system=\(systemSegments.count)")
+                }
             }
 
             await AppState.shared.updateStatus(.processing(progress: 0.9, message: "Generating transcript..."))
@@ -335,19 +361,8 @@ public final class AudioRecordingManager: ObservableObject {
                 try generator.save(markdown: markdown, to: transcriptURL)
             }
 
-            Log.audio.info("Saving transcript to: \(transcriptURL.path)")
-
-            if currentConfig.deleteAudioAfterTranscription {
-                let issues = verifyRecordingFiles(session: session)
-                if issues.isEmpty {
-                    Log.audio.debug("Deleting audio files...")
-                    try? FileManager.default.removeItem(at: session.micFilePath)
-                    try? FileManager.default.removeItem(at: session.systemFilePath)
-                    try? FileManager.default.removeItem(at: session.micFilePath.deletingLastPathComponent())
-                } else {
-                    Log.audio.warning("Skipping audio deletion due to verification issues: \(issues.joined(separator: ", "))")
-                }
-            }
+            let markdownSize = (try? Data(contentsOf: transcriptURL).count) ?? 0
+            Log.audio.info("Transcript saved to: \(transcriptURL.path) (\(ByteCountFormatter.string(fromByteCount: Int64(markdownSize), countStyle: .file)), \(allSegments.count) segments)")
 
             await AppState.shared.updateStatus(.completed)
             Log.audio.info("Processing completed successfully")
@@ -364,14 +379,66 @@ public final class AudioRecordingManager: ObservableObject {
 
         } catch {
             Log.audio.error("Processing failed: \(error.localizedDescription)")
-            await AppState.shared.updateStatus(.error(error.localizedDescription))
-            showErrorNotification(message: error.localizedDescription)
+            saveFailedSessionMetadata(session: session, reason: error.localizedDescription)
+            await AppState.shared.updateStatus(.error("\(error.localizedDescription) Audio files preserved for retry."))
+            showErrorNotification(message: "\(error.localizedDescription) Audio files preserved for retry.")
 
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             await AppState.shared.updateStatus(.idle)
         }
 
         currentSession = nil
+    }
+
+    private enum TranscriptionOutcome {
+        case empty
+        case partial(String)
+        case full
+    }
+
+    private func classifyTranscriptionOutcome(
+        micSegments: [TranscriptSegment],
+        systemSegments: [TranscriptSegment]
+    ) -> TranscriptionOutcome {
+        if micSegments.isEmpty && systemSegments.isEmpty {
+            return .empty
+        } else if micSegments.isEmpty {
+            return .partial("system")
+        } else if systemSegments.isEmpty {
+            return .partial("microphone")
+        }
+        return .full
+    }
+
+    private func saveFailedSessionMetadata(session: RecordingSession, reason: String) {
+        let sessionDir = session.micFilePath.deletingLastPathComponent()
+        let metadataURL = sessionDir.appendingPathComponent(UnprocessedSession.metadataFilename)
+
+        guard !FileManager.default.fileExists(atPath: metadataURL.path) else {
+            Log.audio.debug("Metadata already exists at: \(metadataURL.path)")
+            return
+        }
+
+        let metadata = UnprocessedSession(
+            id: session.id,
+            startTime: session.startTime,
+            endTime: session.endTime ?? Date(),
+            sessionDirectory: sessionDir,
+            micFilePath: session.micFilePath,
+            systemFilePath: session.systemFilePath
+        )
+
+        do {
+            let data = try JSONEncoder().encode(metadata)
+            try data.write(to: metadataURL)
+            Log.audio.info("Saved failed session metadata to: \(metadataURL.path) (reason: \(reason))")
+        } catch {
+            Log.audio.error("Failed to save failure metadata: \(error.localizedDescription)")
+        }
+    }
+
+    private func formattedFileSize(at url: URL) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(fileSize(at: url)), countStyle: .file)
     }
 
     private func checkPermissions() async -> RecordingManagerError? {

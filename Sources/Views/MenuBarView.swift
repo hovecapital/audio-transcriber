@@ -11,6 +11,7 @@ public struct MenuBarView: View {
     @State private var showQuitDialog = false
     @State private var showLiveTranscript = false
     @State private var unprocessedSessions: [UnprocessedSession] = []
+    @State private var orphanedSessions: [OrphanedSession] = []
 
     private let scanner = UnprocessedSessionScanner()
 
@@ -243,6 +244,28 @@ public struct MenuBarView: View {
             .disabled(appState.status.isRecording || appState.status.isProcessing)
         }
 
+        if !orphanedSessions.isEmpty {
+            Menu {
+                Button(action: recoverAllOrphanedSessions) {
+                    Text("Recover All")
+                }
+                Divider()
+                ForEach(orphanedSessions) { session in
+                    Button(action: { recoverOrphanedSession(session) }) {
+                        Text("\(session.formattedDate) (\(session.formattedFileSize))")
+                    }
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "exclamationmark.arrow.circlepath")
+                    Text("Recover Failed Recordings")
+                    Text("(\(orphanedSessions.count))")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .disabled(appState.status.isRecording || appState.status.isProcessing)
+        }
+
         Divider()
 
         Button(action: quitApp) {
@@ -360,7 +383,9 @@ public struct MenuBarView: View {
     }
 
     private func refreshUnprocessedSessions() {
-        unprocessedSessions = scanner.scan()
+        let results = scanner.scanAll()
+        unprocessedSessions = results.unprocessed
+        orphanedSessions = results.orphaned
     }
 
     private func toggleAutoRecord() {
@@ -396,6 +421,24 @@ public struct MenuBarView: View {
     private func processSession(_ session: UnprocessedSession) {
         Task {
             await recordingManager.processUnprocessedSession(session)
+            refreshUnprocessedSessions()
+        }
+    }
+
+    private func recoverOrphanedSession(_ orphaned: OrphanedSession) {
+        Task {
+            guard let promoted = scanner.promoteOrphanedSession(orphaned) else { return }
+            await recordingManager.processUnprocessedSession(promoted)
+            refreshUnprocessedSessions()
+        }
+    }
+
+    private func recoverAllOrphanedSessions() {
+        Task {
+            for orphaned in orphanedSessions {
+                guard let promoted = scanner.promoteOrphanedSession(orphaned) else { continue }
+                await recordingManager.processUnprocessedSession(promoted)
+            }
             refreshUnprocessedSessions()
         }
     }

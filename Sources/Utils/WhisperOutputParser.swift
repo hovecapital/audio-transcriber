@@ -29,8 +29,13 @@ enum WhisperOutputParser {
             throw ParseError.invalidJSON
         }
 
+        let keys = Array(json.keys)
+        Log.transcription.debug("Whisper JSON keys: \(keys.joined(separator: ", "))")
+
         if let transcription = json["transcription"] as? [[String: Any]] {
-            return transcription.compactMap { segment -> TranscriptSegment? in
+            Log.transcription.info("Transcription array has \(transcription.count) entries")
+
+            let segments = transcription.compactMap { segment -> TranscriptSegment? in
                 guard let text = segment["text"] as? String else { return nil }
 
                 let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -46,13 +51,18 @@ enum WhisperOutputParser {
                     speaker: speaker
                 )
             }
+
+            Log.transcription.info("After filtering empty segments: \(segments.count) of \(transcription.count) entries retained")
+            return segments
         }
 
         if let text = json["text"] as? String {
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
+                Log.transcription.warning("Whisper JSON 'text' field was empty")
                 return []
             }
+            Log.transcription.info("Parsed single text block from whisper output")
             return [TranscriptSegment(start: 0, end: 0, text: trimmed, speaker: speaker)]
         }
 
