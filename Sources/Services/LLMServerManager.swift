@@ -29,6 +29,7 @@ public final class LLMServerManager: ObservableObject {
         }
 
         let port = parsePort(from: config.autocorrectServerURL)
+        killExistingLlamaServers(port: port)
 
         var args: [String]
         if hasHFModel {
@@ -91,6 +92,35 @@ public final class LLMServerManager: ObservableObject {
         process = nil
         isRunning = false
         Log.llmServer.info("llama-server stopped")
+    }
+
+    private func killExistingLlamaServers(port: Int) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
+        proc.arguments = ["-ti", "tcp:\(port)"]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !output.isEmpty else { return }
+
+            let pids = output.components(separatedBy: .newlines).compactMap { Int32($0) }
+            for pid in pids {
+                Log.llmServer.info("Killing existing process on port \(port) (pid: \(pid))")
+                kill(pid, SIGTERM)
+            }
+
+            if !pids.isEmpty {
+                Thread.sleep(forTimeInterval: 0.5)
+            }
+        } catch {
+            Log.llmServer.warning("Failed to check for existing llama-server: \(error.localizedDescription)")
+        }
     }
 
     private func findLlamaServerExecutable() -> String? {

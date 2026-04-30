@@ -43,6 +43,10 @@ cp .build/release/MeetingRecorder "build/Meeting Recorder.app/Contents/MacOS/"
 cp Info.plist "build/Meeting Recorder.app/Contents/"
 cp AppIcon.icns "build/Meeting Recorder.app/Contents/Resources/"
 echo "APPL????" > "build/Meeting Recorder.app/Contents/PkgInfo"
+
+codesign --force --sign - --options runtime \
+  --entitlements MeetingRecorder.entitlements \
+  "build/Meeting Recorder.app"
 ```
 
 ### Install

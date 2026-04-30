@@ -119,11 +119,24 @@ struct LogViewerSection: View {
             Text("\(filteredEntries.count) entries")
                 .font(.caption)
                 .foregroundColor(.secondary)
+            Button("Copy Logs") {
+                copyFilteredLogs()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             Button("Clear") {
                 store.clear()
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
         }
+    }
+
+    private func copyFilteredLogs() {
+        let text = filteredEntries.map { entry in
+            "\(Self.timeFormatter.string(from: entry.timestamp)) | \(entry.level.rawValue) | \(entry.category) | \(entry.message)"
+        }.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
