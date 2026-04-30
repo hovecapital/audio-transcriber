@@ -43,6 +43,13 @@ final class TranscriptionService {
 
         progressHandler(0.3, "Running transcription...")
 
+        let repair = WAVFileValidator.repairHeaderIfNeeded(url: audioURL)
+        if repair.repaired {
+            Log.transcription.info("Repaired WAV header for \(audioURL.lastPathComponent)")
+        } else if let error = repair.error {
+            Log.transcription.warning("WAV header repair failed: \(error)")
+        }
+
         let wavValidation = WAVFileValidator.validate(url: audioURL)
         Log.transcription.info("WAV validation for \(audioURL.lastPathComponent): size=\(wavValidation.fileSize), hasAudio=\(wavValidation.hasAudioData)")
         guard wavValidation.isValid else {
