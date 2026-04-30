@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkeyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Log.general.info("MeetingRecorder app launched")
+        Log.general.info("MeetingRecorder v\(AppVersion.current) (build \(AppVersion.build)) launched")
         NSApp.setActivationPolicy(.accessory)
 
         setupMenuBar()
