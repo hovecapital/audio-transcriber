@@ -148,11 +148,42 @@ public final class AutocorrectMonitor: ObservableObject {
         isProcessing = true
         defer { isProcessing = false }
 
-        guard let focused = AccessibilityReader.readFocusedElementText() else {
-            Log.autocorrect.warning("Could not read focused element text")
+        if let focused = AccessibilityReader.readFocusedElementText() {
+            if focused.selectedRange.length > 0 {
+                await correctSelection(client: client, focused: focused)
+            } else {
+                await correctLastSentence(client: client, focused: focused)
+            }
+        } else if let selected = AccessibilityReader.readSelectedText() {
+            await correctViaClipboard(client: client, selected: selected)
+        } else {
+            Log.autocorrect.warning("Could not read text from focused element or clipboard")
+        }
+    }
+
+    private func correctSelection(client: OllamaClient, focused: AccessibilityReader.FocusedElement) async {
+        let start = focused.text.index(focused.text.startIndex, offsetBy: focused.selectedRange.location)
+        let end = focused.text.index(start, offsetBy: focused.selectedRange.length)
+        let sentence = String(focused.text[start..<end])
+
+        guard sentence.count >= 3 else {
+            Log.autocorrect.debug("Selection too short (\(sentence.count) chars)")
             return
         }
 
+        Log.autocorrect.info("Correcting selection via AX API: \(sentence)")
+        await applyCorrection(client: client, original: sentence) { corrected in
+            let cfRange = CFRange(location: focused.selectedRange.location, length: focused.selectedRange.length)
+            if AccessibilityReader.replaceText(in: focused.element, range: cfRange, with: corrected) {
+                Log.autocorrect.info("Corrected selection via AX API")
+                return true
+            }
+            Log.autocorrect.debug("AX replace failed, falling back to clipboard paste")
+            return AccessibilityReader.replaceSelectedText(corrected, element: focused.element, usedClipboard: false)
+        }
+    }
+
+    private func correctLastSentence(client: OllamaClient, focused: AccessibilityReader.FocusedElement) async {
         let cursorPosition = focused.selectedRange.location
         guard cursorPosition > 0 else {
             Log.autocorrect.debug("Cursor at position 0")
@@ -169,21 +200,44 @@ public final class AutocorrectMonitor: ObservableObject {
             return
         }
 
-        Log.autocorrect.info("Correcting: \(sentence)")
-
-        do {
-            let corrected = try await client.correct(sentence)
-            Log.autocorrect.info("Correction: \"\(sentence)\" -> \"\(corrected)\"")
-            correctionCount += 1
-            lastCorrectionTime = Date()
-
+        Log.autocorrect.info("Correcting last sentence via AX API: \(sentence)")
+        await applyCorrection(client: client, original: sentence) { corrected in
             let cfRange = CFRange(location: sentenceRange.lowerBound, length: sentenceRange.count)
             let success = AccessibilityReader.replaceText(in: focused.element, range: cfRange, with: corrected)
             if success {
-                Log.autocorrect.info("Correction applied successfully")
+                Log.autocorrect.info("Corrected last sentence via AX API")
             } else {
-                Log.autocorrect.error("Failed to apply correction via accessibility")
+                Log.autocorrect.error("Failed to apply correction via AX API")
             }
+            return success
+        }
+    }
+
+    private func correctViaClipboard(client: OllamaClient, selected: AccessibilityReader.SelectedText) async {
+        guard selected.text.count >= 3 else {
+            Log.autocorrect.debug("Clipboard selection too short (\(selected.text.count) chars)")
+            return
+        }
+
+        Log.autocorrect.info("Correcting selection via clipboard fallback: \(selected.text)")
+        await applyCorrection(client: client, original: selected.text) { corrected in
+            let success = AccessibilityReader.replaceSelectedText(corrected, element: selected.element, usedClipboard: selected.usedClipboard)
+            if success {
+                Log.autocorrect.info("Corrected selection via clipboard fallback")
+            } else {
+                Log.autocorrect.error("Failed to apply correction via clipboard fallback")
+            }
+            return success
+        }
+    }
+
+    private func applyCorrection(client: OllamaClient, original: String, replace: (String) -> Bool) async {
+        do {
+            let corrected = try await client.correct(original)
+            Log.autocorrect.info("Correction: \"\(original)\" -> \"\(corrected)\"")
+            correctionCount += 1
+            lastCorrectionTime = Date()
+            _ = replace(corrected)
         } catch {
             Log.autocorrect.error("Correction failed: \(error.localizedDescription)")
             if case OllamaError.serverUnreachable = error {
